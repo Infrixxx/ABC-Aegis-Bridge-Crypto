@@ -296,16 +296,27 @@ Dial: *120*ABC#
 
 ## Hackathon Submission
 
+> Legend: ✅ Complete · 🔄 In Progress (Phase 3) · ⏳ Pending
+
 **Track 1 — Merchant & Machine Payments**
-- ✅ Real payment end-to-end (XRPL Testnet)
-- ✅ Automatic order matching (Destination Tag + Memos)
-- ✅ Merchant view: 60s FX lock, PAID confirmation, tx_hash on screen
-- ✅ Machine spending cap: `machine_budgets` table with hard limits + Guardian Agent
+- ✅ Unique order matching via XRPL Destination Tags (Two Ice Creams solved)
+- ✅ 60-second FX lock — ZAR amount locked to USDC equivalent per order
+- ✅ Merchant order status polling — `GET /api/checkout/{order_id}` for POS display
+- ✅ Machine spending cap schema — `machine_budgets` table with hard `max_budget_cap`
+- 🔄 Real XRPL Testnet settlement — `xrpl_service.py` + `transaction_agent.py`
+- 🔄 Transaction Memos — `order_id` embedded in every on-chain payment
+- 🔄 `tx_hash` written to DB and surfaced on PAID screen
+- 🔄 Guardian Agent — enforces budget caps and supplier allowlists in real time
+- 🔄 AI Supervisor — LangGraph orchestration pipeline (`supervisor.py` + `graph_builder.py`)
+- ⏳ HTTP 402 Machine API — autonomous M2M payment endpoint (`routes_machine.py`)
 
 **Track 2 — Mobile Money & Peer-to-Peer**
-- ✅ USSD gateway: zero data, any feature phone, any carrier
-- ✅ Africa's Talking integration
-- ✅ Sub-10 second payment confirmation
+- ✅ USSD gateway — full state machine, zero data, any feature phone, any carrier
+- ✅ Africa's Talking webhook integration with idempotency guards
+- ✅ FX lock enforced at USSD confirmation — stale quotes are rejected
+- 🔄 SMS settlement confirmation — Africa's Talking SMS on XRPL tx success
+- 🔄 Custodial wallet per phone number — real XRPL wallet derivation per user
+- ⏳ IVR Voice fallback — spoken menu for users who cannot type (`routes_voice.py`)
 
 ---
 
