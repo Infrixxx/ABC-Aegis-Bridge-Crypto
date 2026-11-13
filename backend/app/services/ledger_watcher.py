@@ -2,11 +2,12 @@
 app/services/ledger_watcher.py
 ───────────────────────────────
 Background XRPL Ledger Watcher (`AccountTx` poller).
-Detects incoming on-chain transfers to the merchant wallet, matches them
-by DestinationTag / Memo to SQLite orders, and marks them:
-  • PAID      (when delivered_amount >= quoted_crypto)
-  • UNDERPAID (when delivered_amount < quoted_crypto)
-  • LATE      (when payment lands after the 60s FX rate lock expired)
+Checks SQLite first and only queries the XRPL Testnet RPC when there are
+active PENDING or PROCESSING orders, preventing RPC rate-limiting.
+Matches incoming transfers by DestinationTag and marks orders:
+  • PAID      (delivered_amount >= quoted_crypto)
+  • UNDERPAID (delivered_amount < quoted_crypto)
+  • LATE      (payment arrived after the 60s FX lock window expired)
 """
 
 import logging
@@ -33,6 +34,20 @@ def _extract_delivered_xrp_or_iou(meta: dict, tx: dict) -> float:
 
 
 def poll_ledger_once() -> None:
+    # Fast local check: only hit XRPL network if at least one order is waiting
+    conn = sqlite3.connect(settings.DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM orders WHERE status IN ('PENDING', 'PROCESSING') LIMIT 1")
+        has_open_orders = cursor.fetchone() is not None
+    except Exception:
+        has_open_orders = False
+    finally:
+        conn.close()
+
+    if not has_open_orders:
+        return
+
     tx_list = xrpl_service.fetch_recent_merchant_txs(limit=15)
     if not tx_list:
         return
@@ -67,10 +82,9 @@ def poll_ledger_once() -> None:
                 continue
 
             quoted_crypto, fx_lock_expires_at, current_status = row
-            if current_status in ("PAID", "REFUNDED", "REFUNDING", "UNDERPAID"):
+            if current_status in ("PAID", "REFUNDED", "UNDERPAID"):
                 continue
 
-            # Check if short paid (UNDERPAID)
             if delivered_val > 0 and delivered_val < float(quoted_crypto) * 0.98:
                 cursor.execute(
                     "UPDATE orders SET status = 'UNDERPAID', tx_hash = ? WHERE order_id = ?",
@@ -83,7 +97,6 @@ def poll_ledger_once() -> None:
                 )
                 continue
 
-            # Check if late or on-time PAID
             try:
                 expires_dt = datetime.fromisoformat(fx_lock_expires_at)
                 now_dt = datetime.now(timezone.utc) if expires_dt.tzinfo else datetime.utcnow()
@@ -112,7 +125,7 @@ def start_ledger_watcher(interval_sec: float = 2.5) -> None:
     _WATCHER_STARTED = True
 
     def _loop():
-        logger.info("[Watcher] XRPL AccountTx Ledger Watcher started (polling every %.1fs)", interval_sec)
+        logger.info("[Watcher] XRPL AccountTx Ledger Watcher started (smart-polling every %.1fs)", interval_sec)
         while True:
             poll_ledger_once()
             time.sleep(interval_sec)

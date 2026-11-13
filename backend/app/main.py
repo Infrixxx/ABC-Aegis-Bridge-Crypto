@@ -2,8 +2,7 @@
 app/main.py
 ────────────
 FastAPI application entry point for Aegis Bridge Crypto (ABC).
-In cloud production, serves both `/api/*` and the compiled React SPA (`frontend/dist`)
-from a single instance so SQLite (`abc_state.db`) is shared across all personas & devices.
+Serves both `/api/*` and the compiled React SPA (`frontend/dist`).
 """
 
 import os
@@ -18,17 +17,20 @@ from fastapi.responses import FileResponse
 from app.api import routes_checkout, routes_ussd, routes_machine, routes_voice, routes_auth
 from app.core.config import settings
 from app.db.db_setup import init_db
+from app.services.ledger_watcher import start_ledger_watcher
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+# Silence noisy per-request httpx logs in cloud console
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("abc.main")
 
 
 def _ensure_cloud_testnet_wallets():
-    """If deployed to cloud without env vars set, auto-funds Testnet wallets in memory."""
     if not settings.TREASURY_SEED or settings.TREASURY_SEED.startswith("sXXX"):
         try:
             from xrpl.clients import JsonRpcClient
@@ -50,11 +52,7 @@ def _ensure_cloud_testnet_wallets():
 async def lifespan(app: FastAPI):
     init_db()
     _ensure_cloud_testnet_wallets()
-    try:
-        from app.services.ledger_watcher import start_ledger_watcher
-        start_ledger_watcher(interval_sec=2.5)
-    except Exception:
-        pass
+    start_ledger_watcher(interval_sec=2.5)
     yield
 
 
@@ -80,7 +78,7 @@ app.include_router(routes_machine.router,  prefix="/api/machine",   tags=["HTTP 
 app.include_router(routes_voice.router,    prefix="/api/voice",     tags=["IVR Voice API"])
 
 
-@app.get("/health", tags=["Health"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])
 def health_check():
     db_status = "connected"
     try:
@@ -95,10 +93,10 @@ def health_check():
         "db":       db_status,
         "xrpl":     "testnet (https://s.altnet.rippletest.net:51234)",
         "currency": getattr(settings, "active_currency", "XRP"),
+        "watcher":  "active (smart AccountTx poll)",
     }
 
 
-# ── Serve Built React Frontend (`frontend/dist`) if Present (Cloud Production) ─
 FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
 
 if os.path.isdir(FRONTEND_DIST):
@@ -106,13 +104,13 @@ if os.path.isdir(FRONTEND_DIST):
     if os.path.isdir(assets_dir):
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     def serve_spa(full_path: str):
         file_path = os.path.join(FRONTEND_DIST, full_path)
         if full_path and os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
 else:
-    @app.get("/", tags=["Root"])
+    @app.api_route("/", methods=["GET", "HEAD"], tags=["Root"])
     def read_root():
         return {"status": "Aegis Bridge Crypto Engine Active", "version": "0.3.0"}
