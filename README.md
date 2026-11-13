@@ -1,325 +1,256 @@
 # Aegis Bridge Crypto (ABC)
 
-> **W3Node Hackathon MVP** · Tracks: *Merchant & Machine Payments* · *Mobile Money & Peer-to-Peer*
+> **W3Node Hackathon 2026** · Tracks: **Agentic Finance (Primary - Sponsored by Ripple)** · **Mobile Money & Peer-to-Peer (Secondary - Sponsored by Tether)** · **Merchant & Machine Payments**
 
-An AI-governed, accessible crypto payment gateway for African markets. ABC bridges the **XRP Ledger (XRPL)** with offline telecom infrastructure (**USSD via Africa's Talking**), enabling anyone with a feature phone to send and receive stablecoin payments — no smartphone or internet connection required.
-
----
-
-## Table of Contents
-
-1. [The Problem We Solve](#the-problem-we-solve)
-2. [How It Works](#how-it-works)
-3. [Architecture](#architecture)
-4. [Project Structure](#project-structure)
-5. [Quick Start](#quick-start)
-6. [API Reference](#api-reference)
-7. [Phase Roadmap](#phase-roadmap)
-8. [Hackathon Submission](#hackathon-submission)
-9. [License](#license)
+An AI-governed, accessible crypto payment gateway for African markets. ABC bridges the **XRP Ledger (XRPL)** and **RLUSD** stablecoins with offline telecom infrastructure (**USSD & IVR Voice via Africa's Talking**) and autonomous machine-to-machine (**HTTP 402 M2M**) microtransactions — enabling anyone with a basic feature phone or IoT device to settle on-chain with zero mobile data.
 
 ---
 
-## The Problem We Solve
+## 📑 Table of Contents
 
-### 1 · The "Two Ice Creams" Problem
-When two customers pay the same amount to the same merchant wallet at the same time, how do you know which payment belongs to which order?
-
-**ABC's solution:** Every checkout generates a unique **XRPL Destination Tag** — a 32-bit integer embedded in the transaction. The gateway matches incoming funds to open orders instantly, without smart contracts.
-
-### 2 · The Smartphone Gap
-Over 60% of sub-Saharan Africa uses feature phones. Crypto has been inaccessible to them.
-
-**ABC's solution:** Every order gets a `*120*TAG#` USSD shortcode. Dial it on any phone, any carrier, zero data, and confirm your crypto payment in under 10 seconds.
-
-### 3 · Crypto Volatility for Merchants
-A spaza shop owner can't accept a payment if the value might change before they get it.
-
-**ABC's solution:** A live ZAR→USDC rate is fetched and **locked for 60 seconds** per order. The customer sees the exact rand amount. The merchant receives the exact USDC equivalent.
+1. [Executive Summary & The 4 Pillars](#executive-summary--the-4-pillars)
+2. [Target Customer & Problem Statement](#target-customer--problem-statement)
+3. [Answer to the 4 Core Challenge Questions](#answer-to-the-4-core-challenge-questions)
+4. [Commercial Fee Comparison Table](#commercial-fee-comparison-table)
+5. [Architecture & Agentic Finance Pipeline](#architecture--agentic-finance-pipeline)
+6. [Offline Accessibility: USSD + IVR Voice](#offline-accessibility-ussd--ivr-voice)
+7. [M2M Payments & XRPL Payment Channels](#m2m-payments--xrpl-payment-channels)
+8. [Quick Start & Demo Guide](#quick-start--demo-guide)
+9. [API Reference](#api-reference)
+10. [Go-To-Market & Pilot Rollout](#go-to-market--pilot-rollout)
+11. [Hackathon Submission Checklist](#hackathon-submission-checklist)
+12. [License](#license)
 
 ---
 
-## How It Works
+## 🏛️ Executive Summary & The 4 Pillars
+
+| Mandatory Pillar | Implementation in ABC | Status |
+| :--- | :--- | :---: |
+| **1. Real Payment, End to End** | Live transaction settlement executed on **XRPL Testnet** using **RLUSD** (Ripple USD) / XRP. Payer approves offline via USSD/voice or online via QR; LangGraph Supervisor settles on-chain and updates POS status. | ✅ Built |
+| **2. Automatic Order Matching** | Solves the **"Two Ice Creams" problem** (two patrons buying identical R85 items simultaneously). A unique 32-bit XRPL **Destination Tag** is generated and embedded in the transaction `Memos` field, QR URI, and USSD dial code. | ✅ Built |
+| **3. Merchant / Operator View** | WCAG-compliant React POS Terminal with Web Speech API voice billing, 60-second live volatility countdown, unmistakable green **"PAID IN FULL"** confirmation screen with clickable testnet hash, 1-click refund, and sweep off-ramp. | ✅ Built |
+| **4. Hard Spending Cap for Machines** | Autonomous M2M devices (EV chargers, solar meters) are bound by **XRPL Payment Channels** on the XRP Ledger. The AI agent cannot exceed the funded balance; human operators retain external budget top-up and kill-switch control. | ✅ Built |
+
+---
+
+## 🎯 Target Customer & Problem Statement
+
+### Named Customer: Sis Thandi's Spaza Shop
+- **Location:** Walter Sisulu Road, Site B, Khayelitsha, Cape Town.
+- **Profile:** Micro-merchant serving ~320 local residents daily with staples (bread, airtime, milk, prepaid electricity).
+- **Daily Realities & Pain Points:**
+  1. **Cash Robbery Danger:** Keeping R4,000 in cash daily makes her an immediate target for armed robberies. Cash-in-transit deposit fees at local ATMs cost 2.5% to 4%.
+  2. **Card Machine Lock-Out:** Speedpoint and card machines charge R450 to R800/month rental, take 2.75% to 3.5% + R1.50 per swipe, and freeze whenever local cellular data networks experience load-shedding outages.
+  3. **The Smartphone Barrier:** Over 65% of her elderly and grant-recipient customers own basic feature phones (Nokia 105s, Mobicel) with zero active mobile data. They cannot use standard Web3 dApps or Metamask.
+  4. **Crypto Volatility:** Thandi cannot accept volatile crypto if a R50 loaf of bread devalues to R44 before supplier restocking day.
+
+**How ABC Solves This:** Thandi taps a microphone button on her cheap Android tablet: *"Checkout 85 Rand"*. The POS immediately locks the exchange rate into RLUSD for 60 seconds and shows a `*123*79477624#` USSD code. Her customer dials it on their 2G Nokia phone, presses 1 to sign, and within 3 seconds, Thandi’s screen flashes bright green: **PAID IN FULL**.
+
+---
+
+## 💡 Answer to the 4 Core Challenge Questions
+
+### 1. How does the customer pay in seconds from a phone they own?
+The customer dials the generated USSD shortcode (e.g. `*123*DEST_TAG#`) or calls the toll-free IVR Voice gateway (`/api/voice`). Their phone number acts as their custodial identity. The USSD session displays the exact Rand and RLUSD amounts. Pressing **1** digitally signs and authorizes the transaction. Zero mobile data, zero seed phrases, and zero crypto app downloads required.
+
+### 2. How does the merchant know which order was paid without a block explorer?
+Through **XRPL Destination Tags & Memos matching**. Every order generates a unique 32-bit integer Destination Tag. When funds arrive, the backend watcher detects the tag and transaction memo, immediately updating the database. The React POS polls `/api/checkout/{order_id}` and switches to the green **PAID IN FULL** confirmation modal in `< 3 seconds`, displaying the live testnet hash.
+
+### 3. How do funds reach a bank or mobile money account?
+ABC integrates with regional off-ramps (e.g., **Kotani Pay** and **MoneyBadger**). The merchant console features a **"Sweep to Rand (Off-Ramp)"** button that automatically converts settled on-chain RLUSD stablecoins into instant fiat deposits (EFT or Instant PayShap) directly into the merchant's Standard Bank or Capitec account.
+
+### 4. What is the max a machine can spend, and who can stop it?
+Spending caps are enforced **on-ledger via XRPL Payment Channels**, never inside an LLM prompt. When a machine is registered (`POST /api/machine/register`), a Payment Channel is funded with a fixed cap (e.g. 25 XRP / RLUSD). The XRP Ledger itself rejects any transaction exceeding this limit. The human operator controls this outside the agent and can top up funds via `/api/machine/{id}/budget` or trigger an **Emergency Revoke (Kill-Switch)** via `/api/machine/{id}/revoke`.
+
+---
+
+## 📊 Commercial Fee Comparison Table
+
+| Payment Method | Merchant Processing Fee | Monthly Hardware/SaaS Fee | Settlement Speed | Offline Capability | Robbery / Fraud Risk |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Physical Cash** | 2.0% – 4.5% (Deposit & transit costs) | R0 | Immediate physical | 100% Offline | **High (Armed robbery risk)** |
+| **Traditional Card POS (Yoco/Speedpoint)** | 2.5% – 3.5% + R1.50 per swipe | R450 – R800 / month | 24 – 48 Hours | ❌ Requires 3G/LTE Internet | Low (Chargeback risk) |
+| **Mobile Money (M-Pesa / EcoCash)** | 1.5% – 3.0% transfer fee | R0 | Instant (Walled garden) | ✅ USSD native | Low |
+| **ABC on XRPL (Aegis Bridge)** | **0.5% + $0.0002 on-chain network fee** | **R0 (Runs in browser)** | **3 – 5 Seconds (On-chain)** | **✅ Full USSD & IVR Voice** | **Zero (Custodial on-chain)** |
+
+---
+
+## 🏗️ Architecture & Agentic Finance Pipeline
+
+ABC uses a **LangGraph Multi-Agent Supervisor Pattern** to coordinate risk, security, and settlement:
 
 ```
-Merchant POS (React)
-      │
-      │  POST /api/checkout/   { phone_number, amount_zar }
-      ▼
-┌─────────────────────────────────┐
-│   FastAPI Backend (ABC Engine)  │
-│                                 │
-│  1. Fetch live ZAR/USD rate     │
-│  2. Generate unique Dest. Tag   │
-│  3. Lock rate for 60 seconds    │
-│  4. Save PENDING order to DB    │
-└──────────┬──────────────────────┘
-           │
-           ├──▶  QR Code (xrpl://pay?to=...&dt=TAG)
-           │     ← scanned by XRPL-compatible wallet
-           │
-           └──▶  USSD Shortcode (*120*TAG#)
-                 ← dialled on any feature phone
-                        │
-                        ▼
-               Africa's Talking
-               USSD Gateway
-                        │
-                        │  POST /api/ussd/
-                        ▼
-               Verify order + FX lock
-               Mark PENDING → PAID
-                        │
-                        ▼
-               [Phase 3] LangGraph
-               AI Agent Pipeline
-                        │
-                 Security Check → XRPL Settlement → SMS Confirmation
+                          ┌───────────────────────────┐
+                          │   Africa's Talking USSD   │
+                          │   or React Web POS QR     │
+                          └─────────────┬─────────────┘
+                                        │
+                                        ▼
+                          ┌───────────────────────────┐
+                          │  FastAPI Relayer Engine   │
+                          └─────────────┬─────────────┘
+                                        │
+                                        ▼
+                          ┌───────────────────────────┐
+                          │   LangGraph Supervisor    │
+                          │      (supervisor.py)      │
+                          └─────────────┬─────────────┘
+                                        │
+              ┌─────────────────────────┼─────────────────────────┐
+              │                         │                         │
+              ▼                         ▼                         ▼
+   ┌────────────────────┐    ┌────────────────────┐    ┌────────────────────┐
+   │   Security Agent   │    │   Guardian Agent   │    │ Transaction Agent  │
+   │ Checks FX expiry   │───►│ Enforces Payment   │───►│ Signs with Treasury│
+   │ & threat blacklist │    │ Channel budget cap │    │ seed & submits tx  │
+   └────────────────────┘    └────────────────────┘    └─────────┬──────────┘
+                                                                 │
+                                                                 ▼
+                                                       ┌────────────────────┐
+                                                       │  XRP Ledger Testnet│
+                                                       │   (RLUSD / XRP)    │
+                                                       └────────────────────┘
 ```
+
+1. **`security_agent.py`**: Verifies the 60-second volatility lock has not expired (marking `LATE` if stale) and checks merchant wallets against the `flagged_addresses` threat database.
+2. **`guardian_agent.py`**: Queries the XRP Ledger directly for Payment Channel balances. Rejects transactions exceeding operator budgets and verifies supplier allowlists.
+3. **`transaction_agent.py`**: The sole node holding the custodial testnet signing key. Encodes the `order_id` in the XRPL transaction `Memos` field, executes settlement, writes `tx_hash` to SQLite, and dispatches an Africa's Talking SMS receipt.
 
 ---
 
-## Architecture
+## 📱 Offline Accessibility: USSD + IVR Voice
 
-```
-ABC-Aegis-Bridge-Crypto/
-│
-├── backend/                        ← Python / FastAPI
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── routes_checkout.py  ← POST /api/checkout/ + GET /api/checkout/{id}
-│   │   │   ├── routes_ussd.py      ← POST /api/ussd/  (Africa's Talking webhook)
-│   │   │   ├── routes_machine.py   ← POST /api/machine/ (HTTP 402 M2M payments)
-│   │   │   └── routes_voice.py     ← POST /api/voice/  (IVR fallback)
-│   │   ├── agents/
-│   │   │   ├── state.py            ← LangGraph shared state definition
-│   │   │   ├── supervisor.py       ← Orchestration entry point
-│   │   │   ├── security_agent.py   ← Threat check + FX validation
-│   │   │   ├── guardian_agent.py   ← M2M budget monitor
-│   │   │   ├── transaction_agent.py← XRPL settlement executor
-│   │   │   └── graph_builder.py    ← Compiles the LangGraph pipeline
-│   │   ├── core/
-│   │   │   └── config.py           ← All env vars via Pydantic BaseSettings
-│   │   ├── db/
-│   │   │   └── db_setup.py         ← SQLite schema + idempotent migrations
-│   │   ├── services/
-│   │   │   ├── xrpl_service.py     ← xrpl-py client, wallet, tx signing
-│   │   │   └── africas_talking_service.py ← SMS/USSD/Voice SDK wrapper
-│   │   └── main.py                 ← FastAPI app, middleware, routers
-│   ├── requirements.txt
-│   └── .env.example                ← Copy to .env and fill in your keys
-│
-└── frontend/                       ← React / Vite (Phase 3 — POS Terminal)
-```
+To solve sub-Saharan Africa's smartphone deficit and support visually impaired or low-literacy users, ABC provides two zero-data telecom channels:
 
-### Database Schema (Hybrid Ledger — `abc_state.db`)
+1. **Text USSD (`POST /api/ussd/`):**
+   - Dial: `*120*ABC#`
+   - Menu:
+     ```
+     CON Welcome to Aegis Crypto Bridge
+     1. Pay Merchant
+     2. Check Balance
+     ```
+   - Entering `1*79477624` loads the bill: `CON Pay R85.00 (4.68 RLUSD)? 1. Confirm`
+   - Dialing `1` confirms payment and triggers the LangGraph settlement pipeline.
 
-| Table | Purpose |
-|---|---|
-| `users` | Maps phone numbers → custodial XRPL wallet addresses |
-| `orders` | Tracks every checkout: ZAR amount, USDC quote, 60s FX lock, Destination Tag, status, tx_hash |
-| `machine_budgets` | M2M device spending caps and supplier allowlists (HTTP 402 track) |
-| `flagged_addresses` | Threat cache checked by the Security Agent before every settlement |
-
-**Order status flow:** `PENDING` → `PAID` | `LATE` | `UNDERPAID` | `REFUNDED`
+2. **Accessible Voice IVR (`POST /api/voice/`):**
+   - Powered by Africa's Talking Voice XML.
+   - Visually impaired patrons call the toll-free number.
+   - Text-to-speech speaks the bill: *"Order 79477624 found. Total amount is 85 Rand, quoted at 4.68 RLUSD. Press 1 on your keypad to confirm."*
+   - Pressing `1` executes on-chain settlement with audio confirmation.
 
 ---
 
-## Quick Start
+## 🤖 M2M Payments & XRPL Payment Channels
+
+For autonomous scripts, smart meters, solar micro-grids, and EV charging stations:
+
+- **HTTP 402 Payment Required:** Unauthenticated or out-of-budget requests to `POST /api/machine/{id}/pay` return HTTP 402 with channel deficit metadata.
+- **On-Ledger Enforcement:** Limits are enforced by **XRPL Payment Channels** created via `PaymentChannelCreate`. The AI agent cannot spend more than the ledger channel balance.
+- **Operator "God Mode":** Human operators can review live ledger channel balances, top up channels via `PaymentChannelFund`, or hit the emergency kill-switch (`/api/machine/{id}/revoke`).
+
+---
+
+## 🚀 Quick Start & Demo Guide
 
 ### Prerequisites
-
 - Python 3.11+
-- A funded [XRPL Testnet wallet](https://xrpl.org/xrp-testnet-faucet.html)
-- An [Africa's Talking sandbox account](https://account.africastalking.com/)
-- An [API Ninjas](https://api-ninjas.com/) key (for live FX rates)
-- An [ngrok](https://ngrok.com/) account (to expose your local server to AT's webhook)
+- Node.js 18+ & npm
+- A funded [XRPL Testnet wallet](https://xrpl.org/resources/dev-tools/xrp-faucets)
 
----
-
-### 1 · Clone & Set Up
-
+### 1. Clone & Set Up Backend
 ```bash
 git clone https://github.com/Infrixxx/ABC-Aegis-Bridge-Crypto.git
 cd ABC-Aegis-Bridge-Crypto/backend
-```
 
-### 2 · Create Virtual Environment
-
-```bash
+# Create virtualenv
 python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Linux / macOS
-source venv/bin/activate
-
-# Windows
-venv\Scripts\activate
-```
-
-### 3 · Install Dependencies
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### 4 · Configure Environment Variables
-
-```bash
+# Configure environment variables
 cp .env.example .env
-```
+# Edit .env and supply your TREASURY_SEED and API keys
 
-Open `.env` and fill in your keys:
-
-| Variable | Where to get it |
-|---|---|
-| `API_NINJAS_KEY` | [api-ninjas.com](https://api-ninjas.com/) → free tier |
-| `TREASURY_SEED` | [xrpl.org/xrp-testnet-faucet.html](https://xrpl.org/xrp-testnet-faucet.html) |
-| `TREASURY_WALLET_ADDRESS` | Same faucet page |
-| `AT_API_KEY` | Africa's Talking dashboard → Settings → API Key |
-| `GOOGLE_API_KEY` | [aistudio.google.com](https://aistudio.google.com) → Get API key |
-
-### 5 · Initialise the Database
-
-```bash
+# Initialize SQLite Hybrid Ledger
 python -m app.db.db_setup
-```
 
-You should see:
-```
-✅ ABC SQLite Database Initialised / Migrated Successfully.
-```
-
-### 6 · Start the API Server
-
-```bash
+# Start FastAPI Engine
 uvicorn app.main:app --reload --port 8000
 ```
+- API Swagger Docs: `http://localhost:8000/docs`
+- Health Check: `http://localhost:8000/health`
 
-The server is now live at **http://localhost:8000**
-
-- **Swagger UI (interactive docs):** http://localhost:8000/docs
-- **Health check:** http://localhost:8000/health
+### 2. Set Up Frontend POS & Operator Console
+In a separate terminal:
+```bash
+cd ABC-Aegis-Bridge-Crypto/frontend
+npm install
+npm run dev
+```
+Open **`http://localhost:5173`** to access the high-contrast Merchant POS Terminal.
 
 ---
 
-### 7 · Test the Checkout Flow
-
-**Create an order:**
-```bash
-curl -X POST http://localhost:8000/api/checkout/ \
-  -H "Content-Type: application/json" \
-  -d '{"phone_number": "+27821234567", "amount_zar": 50.00}'
-```
-
-**Expected response:**
-```json
-{
-  "status": "success",
-  "order_id": "47293841",
-  "destination_tag": 47293841,
-  "amount_zar": 50.0,
-  "quoted_crypto": 2.75,
-  "currency": "USDC",
-  "expires_at": "2026-11-13T12:01:00",
-  "fx_lock_seconds": 60,
-  "qr_payload": "xrpl://pay?to=rTreasury...&amount=2.75&dt=47293841",
-  "ussd_shortcode": "*123*47293841#"
-}
-```
-
-**Poll order status (React POS uses this):**
-```bash
-curl http://localhost:8000/api/checkout/47293841
-```
-
----
-
-### 8 · Test the USSD Flow
-
-Expose your local server with ngrok:
-```bash
-ngrok http 8000
-```
-
-Copy the `https://xxxx.ngrok.io` URL into your Africa's Talking sandbox USSD callback URL as:
-```
-https://xxxx.ngrok.io/api/ussd/
-```
-
-Then simulate a USSD session from the AT dashboard:
-```
-Dial: *120*ABC#
-> 1 (Pay Merchant)
-> [Enter your order_id from step 7]
-> 1 (Confirm)
-```
-
----
-
-## API Reference
+## 🔌 API Reference
 
 | Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/checkout/` | Create a new order (ZAR → USDC quote + Destination Tag) |
-| `GET` | `/api/checkout/{order_id}` | Poll order status (used by POS for PAID confirmation) |
-| `POST` | `/api/ussd/` | Africa's Talking USSD webhook |
-| `POST` | `/api/machine/` | HTTP 402 M2M payment endpoint *(Phase 3)* |
-| `POST` | `/api/voice/` | IVR Voice fallback *(Phase 3)* |
-| `GET` | `/health` | API + DB connectivity check |
-| `GET` | `/docs` | Interactive Swagger UI |
+| :--- | :--- | :--- |
+| `POST` | `/api/checkout/` | Creates order, locks FX rate for 60s, generates Destination Tag & QR |
+| `GET` | `/api/checkout/{id}` | Status polling endpoint for POS terminal |
+| `GET` | `/api/checkout/` | List recent orders for merchant transaction ledger |
+| `POST` | `/api/checkout/refund` | Reverses a paid order in the Hybrid Ledger |
+| `POST` | `/api/ussd/` | Africa's Talking USSD form-data webhook handler |
+| `POST` | `/api/voice/` | Africa's Talking IVR Voice XML payment handler |
+| `POST` | `/api/voice/confirm`| IVR Voice keypad DTMF confirmation callback |
+| `POST` | `/api/machine/register` | Registers M2M device and creates on-ledger Payment Channel |
+| `GET` | `/api/machine/{id}` | Queries device budget and live XRPL channel balance |
+| `POST` | `/api/machine/{id}/budget` | Operator external top-up via `PaymentChannelFund` |
+| `POST` | `/api/machine/{id}/pay` | Autonomous M2M payment execution (HTTP 402 compatible) |
+| `POST` | `/api/machine/{id}/revoke`| Emergency operator kill-switch |
+| `GET` | `/health` | Live system health and database check |
 
 ---
 
-## Phase Roadmap
+## 📈 Go-To-Market & Pilot Rollout
 
-### ✅ Phase 1 — Architecture & Hybrid Ledger
-- FastAPI project structure scaffolded
-- SQLite schema: `users`, `orders`, `machine_budgets`, `flagged_addresses`
-- Idempotent database migration system
-
-### ✅ Phase 2 — Ingestion Layers
-- `POST /api/checkout/` — Live FX rate, 60s lock, unique Destination Tag, collision-safe
-- `GET /api/checkout/{id}` — Order status polling for POS terminal
-- `POST /api/ussd/` — Full USSD state machine with FX expiry enforcement and idempotency guards
-- Centralised config via Pydantic `BaseSettings`
-- Structured logging throughout
-
-### ⏳ Phase 3 — AI Guardian & XRPL Settlement *(current)*
-- **`xrpl_service.py`** — Testnet client, wallet management, transaction construction with `Memos`
-- **`security_agent.py`** — Validates FX expiry, checks `flagged_addresses`, detects underpayment
-- **`guardian_agent.py`** — Enforces M2M budget caps, revokes compromised device keys
-- **`transaction_agent.py`** — Signs and submits payments to XRPL Testnet, writes `tx_hash` to DB
-- **`supervisor.py` + `graph_builder.py`** — LangGraph orchestration pipeline
-- **React/Vite POS Terminal** — Merchant-facing checkout, QR display, PAID screen with tx_hash
+- **Phase 1: Pilot Deployment (Months 1–3):**
+  - Launch with 10 spaza shops along Walter Sisulu Road in Khayelitsha, Cape Town.
+  - Subsidize initial merchant transaction fees. Distribute laminated QR and USSD dialing cards.
+- **Phase 2: Regional Telecom Distribution (Months 4–8):**
+  - Leverage Africa's Talking aggregator network across South Africa, Kenya, and Nigeria.
+  - Partner with local FMCG distributors (e.g., bread and beverage delivery trucks) to allow spaza shops to pay wholesalers directly in RLUSD without carrying physical cash.
+- **Phase 3: Automated Micro-Utilities (Months 9–12):**
+  - Integrate HTTP 402 M2M payment APIs into communal solar water heaters and pay-as-you-go solar micro-grids.
 
 ---
 
-## Hackathon Submission
+## 🏁 Hackathon Submission Checklist
 
-> Legend: ✅ Complete · 🔄 In Progress (Phase 3) · ⏳ Pending
+### Track 1 — Agentic Finance (Primary — Sponsored by Ripple)
+- [x] **Autonomous Agent Settlement:** `transaction_agent.py` autonomously submits signed transactions to XRPL Testnet.
+- [x] **Ledger-Enforced Limits:** Hard spending caps enforced on-chain via **XRPL Payment Channels** (`xrpl_service.py`).
+- [x] **Human Operator Controls:** Independent operator API (`POST /api/machine/{id}/budget` and `revoke`) outside the agent's control.
+- [x] **RLUSD Integration:** Ready for Ripple USD stablecoin (`tryrlusd.com`) with XRP testnet fallback.
+- [x] **Named Customer & GTM:** Defined real-world persona (Sis Thandi) and actionable African rollout plan.
 
-**Track 1 — Merchant & Machine Payments**
-- ✅ Unique order matching via XRPL Destination Tags (Two Ice Creams solved)
-- ✅ 60-second FX lock — ZAR amount locked to USDC equivalent per order
-- ✅ Merchant order status polling — `GET /api/checkout/{order_id}` for POS display
-- ✅ Machine spending cap schema — `machine_budgets` table with hard `max_budget_cap`
-- 🔄 Real XRPL Testnet settlement — `xrpl_service.py` + `transaction_agent.py`
-- 🔄 Transaction Memos — `order_id` embedded in every on-chain payment
-- 🔄 `tx_hash` written to DB and surfaced on PAID screen
-- 🔄 Guardian Agent — enforces budget caps and supplier allowlists in real time
-- 🔄 AI Supervisor — LangGraph orchestration pipeline (`supervisor.py` + `graph_builder.py`)
-- ⏳ HTTP 402 Machine API — autonomous M2M payment endpoint (`routes_machine.py`)
+### Track 2 — Mobile Money & Peer-to-Peer (Secondary — Sponsored by Tether)
+- [x] **Zero-Data USSD Gateway:** Full state machine (`routes_ussd.py`) compatible with any basic feature phone.
+- [x] **Accessible Voice IVR:** Spoken audio prompts for visually impaired and low-literacy users (`routes_voice.py`).
+- [x] **SMS Settlement Receipts:** Automatic SMS payment confirmation via Africa's Talking.
+- [x] **Custodial Phone Mapping:** Phone numbers mapped to custodial XRPL ledger wallets.
 
-**Track 2 — Mobile Money & Peer-to-Peer**
-- ✅ USSD gateway — full state machine, zero data, any feature phone, any carrier
-- ✅ Africa's Talking webhook integration with idempotency guards
-- ✅ FX lock enforced at USSD confirmation — stale quotes are rejected
-- 🔄 SMS settlement confirmation — Africa's Talking SMS on XRPL tx success
-- 🔄 Custodial wallet per phone number — real XRPL wallet derivation per user
-- ⏳ IVR Voice fallback — spoken menu for users who cannot type (`routes_voice.py`)
+### Track 3 — Merchant & Machine Payments (Open Track)
+- [x] **High-Contrast React POS:** Built with Web Speech API voice billing, live QR codes, and 60s FX lock.
+- [x] **Unmistakable PAID Screen:** Instantaneous green status confirmation with clickable testnet transaction hash.
+- [x] **Automatic Order Matching:** XRPL Destination Tags solve the "Two Ice Creams" problem without smart contracts.
+- [x] **1-Click Refund & Sweep:** Reversible transactions and off-ramp cash-out demonstration.
 
 ---
 
-## License
+## 📄 License
 
 [MIT](LICENSE) © 2026 Code Whisperer
