@@ -32,6 +32,8 @@ def ussd_callback(
 
 
 def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks = None) -> str:
+    text = (text or "").strip()
+
     if text == "":
         return (
             "CON Welcome to Aegis Crypto Bridge\n"
@@ -45,15 +47,26 @@ def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks
     if text == "2":
         return "END Custodial Account Active. Visit POS terminal for live XRPL balance."
 
+    # Standard Menu: 1*<order_id> or 1*<order_id>*1
     if text.startswith("1*"):
         parts = text.split("*")
+        order_id = parts[1].strip() if len(parts) >= 2 else ""
 
-        if len(parts) == 2:
-            order_id = parts[1]
+        if len(parts) == 2 and order_id:
             return _lookup_order(order_id)
 
-        if len(parts) == 3 and parts[2] == "1":
+        if len(parts) == 3 and parts[2].strip() == "1" and order_id:
             return _confirm_payment(order_id, phone_number, background_tasks)
+
+    # Direct Shortcode Dialing: e.g. dialed *123*ORDER_ID# directly
+    parts = text.split("*")
+    if len(parts) == 1 and parts[0].isdigit() and len(parts[0]) >= 5:
+        # User dialed direct order ID
+        return _lookup_order(parts[0])
+
+    if len(parts) == 2 and parts[0].isdigit() and parts[1] == "1":
+        # User confirmed direct order payment
+        return _confirm_payment(parts[0], phone_number, background_tasks)
 
     return "END Invalid input. Please try again."
 
@@ -123,7 +136,6 @@ def _confirm_payment(
                 "Please ask the merchant for a new code."
             )
 
-        # Mark PROCESSING so Security Agent runs full checks and Transaction Agent marks PAID
         cursor.execute(
             "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ?",
             (order_id,),
