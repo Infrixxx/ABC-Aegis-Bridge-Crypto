@@ -25,7 +25,7 @@ Security notes:
 import sqlite3
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Form, Response
+from fastapi import APIRouter, Form, Response, BackgroundTasks
 
 from app.core.config import settings
 
@@ -35,6 +35,7 @@ router = APIRouter()
 
 @router.post("/")
 def ussd_callback(
+    background_tasks: BackgroundTasks,
     sessionId:   str = Form(default=""),
     serviceCode: str = Form(default=""),
     phoneNumber: str = Form(default=""),
@@ -51,14 +52,14 @@ def ussd_callback(
       text="1*79477*1" → User confirmed payment
     """
     logger.info("USSD session=%s phone=%s text='%s'", sessionId, phoneNumber, text)
-    response_text = _handle_ussd(text, phoneNumber)
+    response_text = _handle_ussd(text, phoneNumber, background_tasks)
 
     # Africa's Talking requires plain text starting with CON (keep session open)
     # or END (terminate the session)
     return Response(content=response_text, media_type="text/plain")
 
 
-def _handle_ussd(text: str, phone_number: str) -> str:
+def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks) -> str:
     """Pure-function USSD state machine — easy to unit test."""
 
     # ── Level 0: Main Menu ────────────────────────────────────────────────────
@@ -89,7 +90,7 @@ def _handle_ussd(text: str, phone_number: str) -> str:
         # ── Level 3: User confirmed → trigger settlement ───────────────────────
         if len(parts) == 3 and parts[2] == "1":
             order_id = parts[1]
-            return _confirm_payment(order_id, phone_number)
+            return _confirm_payment(order_id, phone_number, background_tasks)
 
     return "END Invalid input. Please try again."
 
@@ -131,8 +132,9 @@ def _lookup_order(order_id: str) -> str:
 
 def _confirm_payment(order_id: str, phone_number: str) -> str:
     """
-    Validates the order one final time and marks it PAID.
-    Phase 3: This is the trigger point for the LangGraph Treasury Agent.
+    Validates the order one final time, marks it PAID in the DB,
+    and fires the LangGraph agent pipeline as a FastAPI BackgroundTask.
+    The USSD session ends immediately — the agent settles on-chain async.
     """
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
@@ -148,34 +150,50 @@ def _confirm_payment(order_id: str, phone_number: str) -> str:
 
         status, fx_lock_expires_at = row
 
-        # Idempotency guard: already PAID (e.g. AT retried the webhook)
         if status == "PAID":
             return "END Payment already confirmed. All good!"
 
-        # Final FX lock check before we write to the ledger
         if datetime.utcnow() > datetime.fromisoformat(fx_lock_expires_at):
             return (
                 "END Rate expired before confirmation.\n"
                 "Please ask the merchant for a new code."
             )
 
-        # ✅ All checks passed — mark as PAID in the Hybrid Ledger
+        # Mark PAID in DB first so USSD ends cleanly
         cursor.execute(
             "UPDATE orders SET status = 'PAID' WHERE order_id = ?",
             (order_id,),
         )
         conn.commit()
-        logger.info("Order %s confirmed PAID by %s — awaiting XRPL settlement", order_id, phone_number)
+        logger.info(
+            "Order %s confirmed PAID by %s — dispatching to agent pipeline",
+            order_id, phone_number,
+        )
 
     except Exception as exc:
         conn.rollback()
         logger.exception("Payment confirmation failed for order %s", order_id)
-        return f"END System error. Please try again. ({exc})"
+        return f"END System error. Please try again."
     finally:
         conn.close()
 
+    # ── Fire the agent pipeline asynchronously ────────────────────────────────
+    # Import here to avoid startup-time circular dependency issues
+    import threading
+    from app.agents.supervisor import run_payment_pipeline
+
+    def _run_pipeline():
+        result = run_payment_pipeline(order_id=order_id)
+        logger.info(
+            "Agent pipeline result: order=%s status=%s tx=%s",
+            order_id, result.get("status"), result.get("tx_hash"),
+        )
+
+    thread = threading.Thread(target=_run_pipeline, daemon=True)
+    thread.start()
+
     return (
         "END Payment Confirmed!\n"
-        "Your USDC is being settled on-chain.\n"
-        "You will receive an SMS confirmation shortly."
+        "Your RLUSD is being settled on-chain.\n"
+        "Check your merchant screen for the confirmation."
     )
