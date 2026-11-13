@@ -58,7 +58,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS machine_budgets (
         device_id           TEXT PRIMARY KEY,
         operator_phone      TEXT,
-        max_budget_cap      REAL,                   -- Hard spending ceiling (USDC)
+        channel_id          TEXT,                   -- XRPL Payment Channel ledger index
+        max_budget_cap      REAL,                   -- Hard spending ceiling (USDC/XRP)
         current_spent       REAL DEFAULT 0,         -- Running total spent this cycle
         approved_suppliers  TEXT DEFAULT '[]',      -- JSON array of approved wallet addresses
         is_key_revoked      INTEGER DEFAULT 0,      -- 1 = device API key is revoked
@@ -82,7 +83,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print("✅ ABC SQLite Database Initialised / Migrated Successfully.")
+    print("[OK] ABC SQLite Database Initialised / Migrated Successfully.")
 
 
 def _run_migrations(cursor):
@@ -96,6 +97,7 @@ def _run_migrations(cursor):
         ("orders",          "merchant_address",     "TEXT"),
         ("orders",          "tx_hash",              "TEXT"),
         # v2: machine_budgets table
+        ("machine_budgets", "channel_id",           "TEXT"),
         ("machine_budgets", "approved_suppliers",   "TEXT DEFAULT '[]'"),
         ("machine_budgets", "is_key_revoked",       "INTEGER DEFAULT 0"),
     ]

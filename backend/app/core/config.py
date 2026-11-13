@@ -1,51 +1,73 @@
 """
-app/core/config.py
-──────────────────
-Central configuration for Aegis Bridge Crypto (ABC).
-All environment variables are read here — nowhere else in the codebase
-should os.getenv() be called directly.
-
-Usage:
-    from app.core.config import settings
-    print(settings.TREASURY_WALLET_ADDRESS)
+app/core/config.py — Central configuration for Aegis Bridge Crypto (ABC)
 """
 
 import os
-from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), "../../.env"))
+except ImportError:
+    pass
 
-# Load .env from the backend/ directory (one level up from app/)
-load_dotenv(os.path.join(os.path.dirname(__file__), "../../.env"))
+try:
+    from pydantic_settings import BaseSettings
+
+    class Settings(BaseSettings):
+        # ── FX Rate ───────────────────────────────────────────────────────────
+        API_NINJAS_KEY: str = os.getenv("API_NINJAS_KEY", "")
+        FX_LOCK_SECONDS: int = int(os.getenv("FX_LOCK_SECONDS", "60"))
+        FX_FALLBACK_RATE: float = float(os.getenv("FX_FALLBACK_RATE", "0.055"))
+
+        # ── XRPL ──────────────────────────────────────────────────────────────
+        TREASURY_SEED: str = os.getenv("TREASURY_SEED", "")
+        TREASURY_WALLET_ADDRESS: str = os.getenv("TREASURY_WALLET_ADDRESS", "")
+        XRPL_JSON_RPC_URL: str = os.getenv("XRPL_JSON_RPC_URL", "https://s.altnet.rippletest.net:51234")
+        XRPL_EXPLORER_BASE: str = os.getenv("XRPL_EXPLORER_BASE", "https://testnet.xrpl.org/transactions")
+
+        # ── RLUSD (Ripple stablecoin) ──────────────────────────────────────────
+        RLUSD_CURRENCY: str = os.getenv("RLUSD_CURRENCY", "RLUSD")
+        RLUSD_ISSUER: str = os.getenv("RLUSD_ISSUER", "")
+
+        # ── Africa's Talking ──────────────────────────────────────────────────
+        AT_USERNAME: str = os.getenv("AT_USERNAME", "sandbox")
+        AT_API_KEY: str = os.getenv("AT_API_KEY", "")
+
+        # ── AI / LangGraph ────────────────────────────────────────────────────
+        GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+
+        # ── Database ──────────────────────────────────────────────────────────
+        DB_FILE: str = os.path.join(
+            os.path.dirname(__file__), "../../abc_state.db"
+        )
+
+        class Config:
+            env_file = ".env"
+            extra = "ignore"
+
+except ImportError:
+    from pydantic import BaseModel
+
+    class Settings(BaseModel):
+        API_NINJAS_KEY: str = os.getenv("API_NINJAS_KEY", "")
+        FX_LOCK_SECONDS: int = int(os.getenv("FX_LOCK_SECONDS", "60"))
+        FX_FALLBACK_RATE: float = float(os.getenv("FX_FALLBACK_RATE", "0.055"))
+
+        TREASURY_SEED: str = os.getenv("TREASURY_SEED", "")
+        TREASURY_WALLET_ADDRESS: str = os.getenv("TREASURY_WALLET_ADDRESS", "")
+        XRPL_JSON_RPC_URL: str = os.getenv("XRPL_JSON_RPC_URL", "https://s.altnet.rippletest.net:51234")
+        XRPL_EXPLORER_BASE: str = os.getenv("XRPL_EXPLORER_BASE", "https://testnet.xrpl.org/transactions")
+
+        RLUSD_CURRENCY: str = os.getenv("RLUSD_CURRENCY", "RLUSD")
+        RLUSD_ISSUER: str = os.getenv("RLUSD_ISSUER", "")
+
+        AT_USERNAME: str = os.getenv("AT_USERNAME", "sandbox")
+        AT_API_KEY: str = os.getenv("AT_API_KEY", "")
+
+        GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+
+        DB_FILE: str = os.path.join(
+            os.path.dirname(__file__), "../../abc_state.db"
+        )
 
 
-class Settings(BaseSettings):
-    # ── FX Rate ───────────────────────────────────────────────────────────────
-    API_NINJAS_KEY: str = ""
-    FX_LOCK_SECONDS: int = 60
-    FX_FALLBACK_RATE: float = 0.055  # ZAR→USD fallback if API is unreachable
-
-    # ── XRPL ──────────────────────────────────────────────────────────────────
-    TREASURY_SEED: str = ""
-    TREASURY_WALLET_ADDRESS: str = "rTreasuryWalletPlaceholder"
-    XRPL_NODE_URL: str = "wss://s.altnet.rippletest.net:51233"
-
-    # ── Africa's Talking ──────────────────────────────────────────────────────
-    AT_USERNAME: str = "sandbox"
-    AT_API_KEY: str = ""
-
-    # ── AI / LangGraph ────────────────────────────────────────────────────────
-    GOOGLE_API_KEY: str = ""
-
-    # ── Database ──────────────────────────────────────────────────────────────
-    # Absolute path resolved relative to backend/app/core/config.py
-    DB_FILE: str = os.path.join(
-        os.path.dirname(__file__), "../../abc_state.db"
-    )
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
-
-
-# Single shared instance — import this everywhere
 settings = Settings()
