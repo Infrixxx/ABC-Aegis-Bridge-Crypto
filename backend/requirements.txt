@@ -1,22 +1,18 @@
-# ── Core API Framework ────────────────────────────────────────────────────────
+﻿# ── Core API Framework ────────────────────────────────────────────────────────
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.0.0
-pydantic-settings>=2.0.0        # For config.py BaseSettings
-python-multipart>=0.0.9         # Required for Form() parsing in USSD webhook
+pydantic-settings>=2.0.0
+python-multipart>=0.0.9
 
 # ── Environment & HTTP ────────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 requests>=2.31.0
-httpx>=0.27.0                   # Async HTTP (used by LangChain internals)
+httpx>=0.27.0
 
 # ── Blockchain ────────────────────────────────────────────────────────────────
-xrpl-py>=2.6.0                  # XRPL Testnet client, wallet, transaction signing
+xrpl-py>=2.6.0
 
 # ── AI / Agent Orchestration ──────────────────────────────────────────────────
 langgraph>=0.1.0
 langchain-core>=0.2.0
-langchain-google-genai>=1.0.7   # Swap for langchain-openai if using GPT
-
-# ── Utilities ─────────────────────────────────────────────────────────────────
-africas-talking>=1.0.0          # Africa's Talking SDK (SMS / USSD / Voice)
