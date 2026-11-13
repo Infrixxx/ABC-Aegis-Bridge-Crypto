@@ -46,9 +46,16 @@ export default function App() {
   const [topUpAmount, setTopUpAmount] = useState("10");
   const [operatorNotice, setOperatorNotice] = useState("");
 
-  // Poll current order status
+  // Poll current order status until PAID with tx_hash
   useEffect(() => {
-    if (!currentOrder || orderStatus === "PAID" || orderStatus === "REFUNDED" || timeLeft <= 0) {
+    if (
+      !currentOrder ||
+      (orderStatus === "PAID" && currentOrder.tx_hash) ||
+      orderStatus === "REFUNDED" ||
+      orderStatus === "FAILED" ||
+      orderStatus === "REJECTED" ||
+      timeLeft <= 0
+    ) {
       return;
     }
 
@@ -57,12 +64,12 @@ export default function App() {
         const res = await fetch(`${API_BASE}/api/checkout/${currentOrder.order_id}`);
         if (res.ok) {
           const data = await res.json();
+          setCurrentOrder(prev => ({ ...prev, ...data }));
           if (data.status === "PAID") {
             setOrderStatus("PAID");
-            setCurrentOrder(prev => ({ ...prev, ...data }));
             fetchRecentOrders();
-          } else if (data.status === "LATE") {
-            setOrderStatus("LATE");
+          } else if (data.status === "LATE" || data.status === "FAILED" || data.status === "REJECTED") {
+            setOrderStatus(data.status);
           }
         }
       } catch (err) {
@@ -219,17 +226,8 @@ export default function App() {
       });
 
       if (res.ok) {
-        // Agent pipeline executes asynchronously. Immediate optimistic update:
-        setOrderStatus("PAID");
-        // Re-poll order to get tx_hash
-        setTimeout(async () => {
-          const poll = await fetch(`${API_BASE}/api/checkout/${currentOrder.order_id}`);
-          if (poll.ok) {
-            const data = await poll.json();
-            setCurrentOrder(prev => ({ ...prev, ...data }));
-            fetchRecentOrders();
-          }
-        }, 1200);
+        // Keep polling active until LangGraph writes PAID + tx_hash to SQLite
+        fetchRecentOrders();
       }
     } catch (err) {
       alert("Simulation failed: " + err.message);
@@ -276,7 +274,11 @@ export default function App() {
           device_id: deviceId,
           operator_phone: operatorPhone,
           max_budget_xrp: parseFloat(maxBudgetCap),
-          approved_suppliers: ["rTreasuryWalletPlaceholder", "rMerchantStoreAddress1"],
+          approved_suppliers: [
+            "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+            "rTreasuryWalletPlaceholder",
+            "rMerchantStoreAddress1",
+          ],
         }),
       });
 

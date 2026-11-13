@@ -4,26 +4,11 @@ app/api/routes_ussd.py
 POST /api/ussd/
 
 Africa's Talking USSD webhook handler.
-Processes the user's offline menu navigation and, on confirmation,
-transitions the order from PENDING → PAID (which Phase 3 agents watch).
-
-USSD Menu Flow:
-  Dial *120*ABC#
-  ├─ 1. Pay Merchant
-  │   └─ Enter Order ID (Destination Tag)
-  │       └─ Confirm payment details
-  │           └─ ✅ Payment authorised → triggers XRPL settlement
-  └─ 2. Check Balance (stub — Phase 3)
-
-Security notes:
-  - FX lock expiry is enforced: stale orders are rejected with a clear message.
-  - Idempotency: already-PAID orders cannot be reconfirmed.
-  - Africa's Talking request signature verification should be added before
-    production (requires the AT webhook secret from the dashboard).
 """
 
 import sqlite3
 import logging
+import threading
 from datetime import datetime
 from fastapi import APIRouter, Form, Response, BackgroundTasks
 
@@ -41,28 +26,12 @@ def ussd_callback(
     phoneNumber: str = Form(default=""),
     text:        str = Form(default=""),
 ):
-    """
-    Africa's Talking sends USSD inputs as standard Form Data.
-    The 'text' field accumulates the user's input, separated by asterisks.
-
-    Examples:
-      text=""        → User just dialled the shortcode (show main menu)
-      text="1"       → User pressed 1 (Pay Merchant)
-      text="1*79477" → User entered order ID 79477
-      text="1*79477*1" → User confirmed payment
-    """
     logger.info("USSD session=%s phone=%s text='%s'", sessionId, phoneNumber, text)
     response_text = _handle_ussd(text, phoneNumber, background_tasks)
-
-    # Africa's Talking requires plain text starting with CON (keep session open)
-    # or END (terminate the session)
     return Response(content=response_text, media_type="text/plain")
 
 
-def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks) -> str:
-    """Pure-function USSD state machine — easy to unit test."""
-
-    # ── Level 0: Main Menu ────────────────────────────────────────────────────
+def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks = None) -> str:
     if text == "":
         return (
             "CON Welcome to Aegis Crypto Bridge\n"
@@ -70,33 +39,26 @@ def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks
             "2. Check Balance"
         )
 
-    # ── Level 1: User chose an option ─────────────────────────────────────────
     if text == "1":
         return "CON Enter Merchant Order ID (Destination Tag):"
 
     if text == "2":
-        # Stub — Phase 3 will query custodial wallet balance via xrpl-py
-        return "END Balance check coming soon. Visit abc.app for details."
+        return "END Custodial Account Active. Visit POS terminal for live XRPL balance."
 
-    # ── Level 2+: Payment flow ────────────────────────────────────────────────
     if text.startswith("1*"):
         parts = text.split("*")
 
-        # ── Level 2: User entered the Order ID → show payment details ─────────
         if len(parts) == 2:
             order_id = parts[1]
             return _lookup_order(order_id)
 
-        # ── Level 3: User confirmed → trigger settlement ───────────────────────
         if len(parts) == 3 and parts[2] == "1":
-            order_id = parts[1]
             return _confirm_payment(order_id, phone_number, background_tasks)
 
     return "END Invalid input. Please try again."
 
 
 def _lookup_order(order_id: str) -> str:
-    """Fetches order details and validates the FX lock is still active."""
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -113,11 +75,9 @@ def _lookup_order(order_id: str) -> str:
 
     amount_zar, quoted_crypto, status, fx_lock_expires_at = row
 
-    # Guard: already paid
-    if status == "PAID":
-        return "END This order has already been paid. Thank you!"
+    if status in ("PAID", "PROCESSING"):
+        return "END This order has already been paid or is currently settling. Thank you!"
 
-    # Guard: FX lock expired (the 60-second window has passed)
     if datetime.utcnow() > datetime.fromisoformat(fx_lock_expires_at):
         return (
             "END Rate expired. This quote was only valid for 60 seconds.\n"
@@ -125,17 +85,16 @@ def _lookup_order(order_id: str) -> str:
         )
 
     return (
-        f"CON Pay R{amount_zar:.2f} ({quoted_crypto:.4f} USDC)?\n"
+        f"CON Pay R{amount_zar:.2f} ({quoted_crypto:.4f} RLUSD)?\n"
         "1. Confirm & Sign Transaction"
     )
 
 
-def _confirm_payment(order_id: str, phone_number: str) -> str:
-    """
-    Validates the order one final time, marks it PAID in the DB,
-    and fires the LangGraph agent pipeline as a FastAPI BackgroundTask.
-    The USSD session ends immediately — the agent settles on-chain async.
-    """
+def _confirm_payment(
+    order_id: str,
+    phone_number: str,
+    background_tasks: BackgroundTasks = None,
+) -> str:
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -150,36 +109,38 @@ def _confirm_payment(order_id: str, phone_number: str) -> str:
 
         status, fx_lock_expires_at = row
 
-        if status == "PAID":
+        if status in ("PAID", "PROCESSING"):
             return "END Payment already confirmed. All good!"
 
         if datetime.utcnow() > datetime.fromisoformat(fx_lock_expires_at):
+            cursor.execute(
+                "UPDATE orders SET status = 'LATE' WHERE order_id = ?",
+                (order_id,),
+            )
+            conn.commit()
             return (
                 "END Rate expired before confirmation.\n"
                 "Please ask the merchant for a new code."
             )
 
-        # Mark PAID in DB first so USSD ends cleanly
+        # Mark PROCESSING so Security Agent runs full checks and Transaction Agent marks PAID
         cursor.execute(
-            "UPDATE orders SET status = 'PAID' WHERE order_id = ?",
+            "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ?",
             (order_id,),
         )
         conn.commit()
         logger.info(
-            "Order %s confirmed PAID by %s — dispatching to agent pipeline",
+            "Order %s confirmed by %s — dispatching to LangGraph pipeline",
             order_id, phone_number,
         )
 
     except Exception as exc:
         conn.rollback()
         logger.exception("Payment confirmation failed for order %s", order_id)
-        return f"END System error. Please try again."
+        return "END System error. Please try again."
     finally:
         conn.close()
 
-    # ── Fire the agent pipeline asynchronously ────────────────────────────────
-    # Import here to avoid startup-time circular dependency issues
-    import threading
     from app.agents.supervisor import run_payment_pipeline
 
     def _run_pipeline():

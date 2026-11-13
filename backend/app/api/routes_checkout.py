@@ -2,10 +2,6 @@
 app/api/routes_checkout.py
 ───────────────────────────
 POST /api/checkout/
-
-Accepts a ZAR amount and phone number, fetches the live FX rate,
-locks it for 60 seconds, and returns a unique XRPL Destination Tag
-(the "Two Ice Creams" solution) alongside QR and USSD payloads.
 """
 
 import sqlite3
@@ -21,22 +17,14 @@ logger = logging.getLogger("abc.checkout")
 router = APIRouter()
 
 
-# ── Request Schema ────────────────────────────────────────────────────────────
-
 class CheckoutRequest(BaseModel):
     phone_number: str
     amount_zar: float
-    merchant_address: str = settings.TREASURY_WALLET_ADDRESS  # Optional override
+    merchant_address: str = settings.MERCHANT_WALLET_ADDRESS
 
-
-# ── FX Rate Helper ────────────────────────────────────────────────────────────
 
 def get_live_zar_to_usdc_rate() -> float:
-    """
-    Fetches the live ZAR→USD exchange rate from API Ninjas.
-    Falls back to a cached rate if the API key is missing or the call fails.
-    """
-    if not settings.API_NINJAS_KEY:
+    if not settings.API_NINJAS_KEY or settings.API_NINJAS_KEY == "your_api_ninjas_key_here":
         logger.warning("API_NINJAS_KEY not set — using fallback rate %.4f", settings.FX_FALLBACK_RATE)
         return settings.FX_FALLBACK_RATE
 
@@ -57,16 +45,9 @@ def get_live_zar_to_usdc_rate() -> float:
         return settings.FX_FALLBACK_RATE
 
 
-# ── Destination Tag Generator (Collision-Safe) ────────────────────────────────
-
 def generate_unique_destination_tag(cursor) -> int:
-    """
-    Generates a unique 32-bit XRPL Destination Tag.
-    Retries until a tag is found that does not exist in the orders table,
-    eliminating the collision risk of a bare random.randint() call.
-    """
     import random
-    for _ in range(10):  # 10 attempts is astronomically safe (1-in-99M chance)
+    for _ in range(10):
         tag = random.randint(100_000, 99_999_999)
         cursor.execute("SELECT 1 FROM orders WHERE order_id = ?", (str(tag),))
         if cursor.fetchone() is None:
@@ -74,39 +55,26 @@ def generate_unique_destination_tag(cursor) -> int:
     raise RuntimeError("Could not generate a unique Destination Tag after 10 attempts.")
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
-
 @router.post("/")
 def create_checkout(request: CheckoutRequest):
-    """
-    Creates a new PENDING order with a 60-second FX-locked USDC quote.
-
-    Returns:
-      - order_id / destination_tag  → used by all downstream channels
-      - qr_payload                  → scanned by XRPL-compatible wallets
-      - ussd_shortcode              → dialled by feature phone users
-      - expires_at                  → POS timer countdown target
-    """
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
 
+    merchant_addr = request.merchant_address or settings.MERCHANT_WALLET_ADDRESS
+
     try:
-        # 1. Generate a collision-safe Destination Tag
         destination_tag = generate_unique_destination_tag(cursor)
         order_id = str(destination_tag)
 
-        # 2. Lock live FX rate for FX_LOCK_SECONDS
         live_rate = get_live_zar_to_usdc_rate()
-        quoted_crypto = round(request.amount_zar * live_rate, 6)  # 6dp for USDC precision
+        quoted_crypto = round(request.amount_zar * live_rate, 6)
         expiry_time = datetime.utcnow() + timedelta(seconds=settings.FX_LOCK_SECONDS)
 
-        # 3. Upsert user into the custodial identity layer (placeholder wallet for now)
         cursor.execute(
             "INSERT OR IGNORE INTO users (phone_number, custodial_wallet) VALUES (?, ?)",
             (request.phone_number, "rPendingCustodialWallet"),
         )
 
-        # 4. Write the locked order into the Hybrid Ledger
         cursor.execute(
             """
             INSERT INTO orders
@@ -117,14 +85,14 @@ def create_checkout(request: CheckoutRequest):
             (
                 order_id,
                 request.phone_number,
-                request.merchant_address,
+                merchant_addr,
                 request.amount_zar,
                 quoted_crypto,
                 expiry_time.isoformat(),
             ),
         )
         conn.commit()
-        logger.info("Order %s created: R%.2f → %.6f USDC (expires %s)", order_id, request.amount_zar, quoted_crypto, expiry_time.isoformat())
+        logger.info("Order %s created: R%.2f → %.6f RLUSD (expires %s)", order_id, request.amount_zar, quoted_crypto, expiry_time.isoformat())
 
     except Exception as exc:
         conn.rollback()
@@ -133,33 +101,26 @@ def create_checkout(request: CheckoutRequest):
     finally:
         conn.close()
 
-    # 5. Return unified payload for POS, QR renderer, and USSD menu builder
     return {
         "status": "success",
         "order_id": order_id,
         "destination_tag": destination_tag,
         "amount_zar": request.amount_zar,
         "quoted_crypto": quoted_crypto,
-        "currency": "USDC",
-        "merchant_address": request.merchant_address,
+        "currency": "RLUSD",
+        "merchant_address": merchant_addr,
         "expires_at": expiry_time.isoformat(),
         "fx_lock_seconds": settings.FX_LOCK_SECONDS,
         "qr_payload": (
-            f"xrpl://pay?to={request.merchant_address}"
+            f"xrpl://pay?to={merchant_addr}"
             f"&amount={quoted_crypto}&dt={destination_tag}"
         ),
         "ussd_shortcode": f"*123*{destination_tag}#",
     }
 
 
-# ── Order Status Polling Endpoint (for React POS) ─────────────────────────────
-
 @router.get("/{order_id}")
 def get_order_status(order_id: str):
-    """
-    Polls the status of an existing order.
-    The React POS calls this every 2 seconds to show the PAID confirmation.
-    """
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -179,22 +140,19 @@ def get_order_status(order_id: str):
         raise HTTPException(status_code=404, detail=f"Order '{order_id}' not found.")
 
     return {
-        "order_id":          row[0],
-        "phone_number":      row[1],
-        "merchant_address":  row[2],
-        "amount_zar":        row[3],
-        "quoted_crypto":     row[4],
+        "order_id":           row[0],
+        "phone_number":       row[1],
+        "merchant_address":   row[2],
+        "amount_zar":         row[3],
+        "quoted_crypto":      row[4],
         "fx_lock_expires_at": row[5],
-        "status":            row[6],
-        "tx_hash":           row[7],
+        "status":             row[6],
+        "tx_hash":            row[7],
     }
 
 
-# ── Recent Orders List (for Merchant POS dashboard) ───────────────────────────
-
 @router.get("/")
 def list_orders(limit: int = 20):
-    """Returns the most recent orders for POS history."""
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -227,8 +185,6 @@ def list_orders(limit: int = 20):
     return {"orders": orders}
 
 
-# ── Refund Endpoint ───────────────────────────────────────────────────────────
-
 class RefundRequest(BaseModel):
     order_id: str
     reason: str = "Merchant initiated refund"
@@ -236,10 +192,6 @@ class RefundRequest(BaseModel):
 
 @router.post("/refund")
 def refund_order(request: RefundRequest):
-    """
-    Reverses a paid order, marking it REFUNDED in the Hybrid Ledger
-    and issuing reverse settlement if XRPL testnet is connected.
-    """
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:

@@ -2,16 +2,6 @@
 app/agents/transaction_agent.py
 ─────────────────────────────────
 Transaction Agent — final node in the LangGraph pipeline.
-
-Executes the actual XRPL Testnet payment after security and guardian
-checks have both passed. On success:
-  - Writes tx_hash to the orders table in SQLite.
-  - Updates order status to PAID.
-  - Returns explorer_url for the POS terminal to display.
-
-On failure:
-  - Updates order status to FAILED.
-  - Returns error details for operator alerting.
 """
 
 import sqlite3
@@ -25,17 +15,11 @@ logger = logging.getLogger("abc.agents.transaction")
 
 
 def transaction_node(state: ABCState) -> ABCState:
-    """
-    LangGraph node: submits the XRPL payment and writes the result to DB.
-
-    Expects state to have:
-      - order_id, merchant_address, amount_usdc, destination_tag
-      - is_flagged=False, budget_ok=True (enforced by upstream nodes)
-    """
     order_id = state["order_id"]
     merchant_address = state["merchant_address"]
     amount_usdc = state["amount_usdc"]
     destination_tag = state.get("destination_tag", int(order_id))
+    channel_id = state.get("channel_id")
 
     logger.info(
         "[Transaction] Settling order=%s amount=%.6f to=%s tag=%d",
@@ -43,7 +27,6 @@ def transaction_node(state: ABCState) -> ABCState:
     )
 
     try:
-        # ── Execute on XRPL Testnet ───────────────────────────────────────────
         result = xrpl_service.send_payment(
             order_id=order_id,
             merchant_address=merchant_address,
@@ -54,7 +37,6 @@ def transaction_node(state: ABCState) -> ABCState:
         tx_hash = result["tx_hash"]
         explorer_url = result["explorer_url"]
 
-        # ── Write tx_hash and PAID status to Hybrid Ledger ───────────────────
         conn = sqlite3.connect(settings.DB_FILE)
         cursor = conn.cursor()
         try:
@@ -62,6 +44,11 @@ def transaction_node(state: ABCState) -> ABCState:
                 "UPDATE orders SET status = 'PAID', tx_hash = ? WHERE order_id = ?",
                 (tx_hash, order_id),
             )
+            if channel_id:
+                cursor.execute(
+                    "UPDATE machine_budgets SET current_spent = current_spent + ? WHERE channel_id = ?",
+                    (amount_usdc, channel_id),
+                )
             conn.commit()
             logger.info(
                 "[Transaction] [PAID] order=%s tx_hash=%s", order_id, tx_hash
@@ -69,7 +56,6 @@ def transaction_node(state: ABCState) -> ABCState:
         finally:
             conn.close()
 
-        # ── Dispatch SMS receipt to payer ────────────────────────────────────
         phone_number = state.get("phone_number")
         if phone_number:
             try:
@@ -90,7 +76,6 @@ def transaction_node(state: ABCState) -> ABCState:
         }
 
     except Exception as exc:
-        # ── Settlement failed — write FAILED status to DB ─────────────────────
         logger.exception(
             "[Transaction] ❌ XRPL payment failed for order=%s: %s", order_id, exc
         )

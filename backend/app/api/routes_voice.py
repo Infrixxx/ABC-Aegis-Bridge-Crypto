@@ -4,12 +4,6 @@ app/api/routes_voice.py
 POST /api/voice/
 
 Africa's Talking IVR (Interactive Voice Response) webhook.
-Provides an audio-guided payment flow for visually impaired and low-literacy users.
-
-Returns Africa's Talking XML (<Response><Say>...</Say></Response>) prompts:
-  1. Initial call: Prompts user to dial their Order ID (Destination Tag).
-  2. Order lookup: Reads out the Rand amount and RLUSD quote aloud.
-  3. Keypad press "1": Confirms payment and triggers the LangGraph agent pipeline.
 """
 
 import sqlite3
@@ -32,17 +26,11 @@ def voice_callback(
     callerNumber: str = Form(default=""),
     dtmfDigits: str = Form(default=""),
 ):
-    """
-    Africa's Talking IVR webhook handler.
-    Receives caller number, session status, and DTMF (touch-tone) keypad digits.
-    """
     logger.info("IVR voice session=%s caller=%s dtmf='%s'", sessionId, callerNumber, dtmfDigits)
 
     if isActive != "1":
-        # Call has ended
         return Response(content="<Response/>", media_type="application/xml")
 
-    # Step 1: Initial greeting — ask for the Order ID
     if not dtmfDigits:
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -56,12 +44,8 @@ def voice_callback(
         )
         return Response(content=xml, media_type="application/xml")
 
-    # Step 2: User entered order number or confirmation
-    # If dtmfDigits is e.g. "79477624" (order ID)
     digits = dtmfDigits.strip("#")
 
-    # Check if this is a confirmation digit (1) after order lookup in session
-    # In AT IVR, multi-turn flows pass dtmfDigits. We handle order ID lookup:
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -77,7 +61,7 @@ def voice_callback(
     if row:
         order_id, amount_zar, quoted_crypto, status, fx_lock_expires_at = row
 
-        if status == "PAID":
+        if status in ("PAID", "PROCESSING"):
             xml = (
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 '<Response>\n'
@@ -95,7 +79,6 @@ def voice_callback(
             )
             return Response(content=xml, media_type="application/xml")
 
-        # Order found — prompt to press 1 to confirm payment
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<Response>\n'
@@ -108,7 +91,6 @@ def voice_callback(
         )
         return Response(content=xml, media_type="application/xml")
 
-    # Fallback for unrecognized digits
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<Response>\n'
@@ -124,20 +106,18 @@ def voice_confirm(
     dtmfDigits: str = Form(default=""),
     callerNumber: str = Form(default=""),
 ):
-    """Callback for confirming payment via keypad press 1."""
     if dtmfDigits == "1":
         conn = sqlite3.connect(settings.DB_FILE)
         cursor = conn.cursor()
         try:
             cursor.execute(
-                "UPDATE orders SET status = 'PAID' WHERE order_id = ? AND status = 'PENDING'",
+                "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ? AND status = 'PENDING'",
                 (order_id,),
             )
             conn.commit()
         finally:
             conn.close()
 
-        # Fire pipeline asynchronously
         def _run_pipeline():
             run_payment_pipeline(order_id=order_id)
 
