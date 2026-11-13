@@ -1,6 +1,6 @@
 """
 app/db/db_setup.py
-───────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Initialises the ABC SQLite hybrid ledger and seeds the local threat cache.
 """
 
@@ -145,6 +145,7 @@ def _run_migrations(cursor):
         ("machine_budgets", "channel_id",         "TEXT"),
         ("machine_budgets", "approved_suppliers", "TEXT DEFAULT '[]'"),
         ("machine_budgets", "is_key_revoked",     "INTEGER DEFAULT 0"),
+        ("users",           "wallet_pin",         "TEXT DEFAULT '1234'"),
     ]
     for table, column, col_type in migrations:
         try:

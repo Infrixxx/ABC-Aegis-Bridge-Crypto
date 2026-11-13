@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AuthResponse,
   CheckoutResponse,
   DeviceInfo,
@@ -132,12 +132,40 @@ export const api = {
       threat_cache: { wallet_address: string; flag_reason: string }[]
     }>("/api/checkout/traces/recent"),
 
-  simulateUssdConfirm: async (orderId: string, phone: string) => {
+  callVoiceIvr: async (dtmfDigits: string, callerNumber = "+27821234567", sessionId = "ivr-demo") => {
+    const body = new URLSearchParams({
+      sessionId,
+      isActive: "1",
+      callerNumber,
+      dtmfDigits,
+    })
+    const res = await fetch(`${API_BASE}/api/voice/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    })
+    return res.text()
+  },
+
+  confirmVoiceIvr: async (orderId: string, pinDigits: string, callerNumber = "+27821234567") => {
+    const body = new URLSearchParams({
+      dtmfDigits: pinDigits,
+      callerNumber,
+    })
+    const res = await fetch(`${API_BASE}/api/voice/confirm?order_id=${encodeURIComponent(orderId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    })
+    return res.text()
+  },
+
+  simulateUssdConfirm: async (orderId: string, phone: string, pin = "1234") => {
     const body = new URLSearchParams({
       sessionId: `demo-${orderId}`,
       serviceCode: "*120*123#",
       phoneNumber: phone,
-      text: `1*${orderId}*1`,
+      text: `1*${orderId}*${pin}`,
     })
     let res: Response
     try {

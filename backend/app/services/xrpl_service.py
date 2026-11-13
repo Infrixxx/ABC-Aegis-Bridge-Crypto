@@ -1,11 +1,11 @@
 """
 app/services/xrpl_service.py
-─────────────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 All XRP Ledger interactions for the ABC engine:
-  • Direct Payment settlement (RLUSD IOU or native XRP)
-  • On-ledger PaymentChannelCreate, PaymentChannelFund, and cryptographic PaymentChannelClaim (CLM\0)
-  • On-chain Merchant Refund (reverse Payment with Memo)
-  • AccountTx ledger polling for automatic order matching (PAID / UNDERPAID / LATE)
+  â€¢ Direct Payment settlement (RLUSD IOU or native XRP)
+  â€¢ On-ledger PaymentChannelCreate, PaymentChannelFund, and cryptographic PaymentChannelClaim (CLM\0)
+  â€¢ On-chain Merchant Refund (reverse Payment with Memo)
+  â€¢ AccountTx ledger polling for automatic order matching (PAID / UNDERPAID / LATE)
 """
 
 import logging
@@ -44,7 +44,13 @@ class LedgerCapExceededError(RuntimeError):
 
 def _is_real_seed_configured(seed_val: str | None = None) -> bool:
     seed = (seed_val if seed_val is not None else settings.TREASURY_SEED or "").strip()
-    return bool(seed) and not seed.startswith("sXXX") and seed != "your_treasury_seed_here"
+    if not seed or seed.startswith("sXXX") or seed == "your_treasury_seed_here":
+        return False
+    try:
+        Wallet.from_seed(seed)
+        return True
+    except Exception:
+        return False
 
 
 def _get_client() -> JsonRpcClient:
@@ -65,13 +71,18 @@ def _get_merchant_wallet() -> Wallet:
 
 def _resolve_destination(treasury_address: str, requested_destination: str) -> str:
     dest = (requested_destination or "").strip()
-    if not dest or dest == treasury_address or dest.startswith("rXXX"):
+    unactivated_placeholders = {
+        "",
+        treasury_address,
+        "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+        "rKasiSpazaSettlementWallet8888",
+        "rCleanGridOperatorChannelWallet77",
+        "rHyperionCFOAuditTreasuryPool555",
+    }
+    if dest in unactivated_placeholders or dest.startswith("rXXX"):
         if _is_real_seed_configured(settings.MERCHANT_SEED):
             return _get_merchant_wallet().address
-        fallback = settings.MERCHANT_WALLET_ADDRESS
-        if fallback == treasury_address:
-            return "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe"
-        return fallback
+        return settings.MERCHANT_WALLET_ADDRESS
     return dest
 
 

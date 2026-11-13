@@ -2,7 +2,7 @@
 app/main.py
 ────────────
 FastAPI application entry point for Aegis Bridge Crypto (ABC).
-Serves both `/api/*` and the compiled React SPA (`frontend/dist`).
+Verifies XRPL Testnet wallets on startup and serves both `/api/*` and `frontend/dist`.
 """
 
 import os
@@ -24,28 +24,58 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-# Silence noisy per-request httpx logs in cloud console
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("abc.main")
 
 
+def _is_wallet_funded(client, seed: str) -> tuple[bool, str]:
+    """Checks if a seed is valid AND funded on the current XRPL Testnet ledger."""
+    if not seed or seed.startswith("sXXX") or seed == "your_treasury_seed_here":
+        return False, ""
+    try:
+        from xrpl.wallet import Wallet
+        from xrpl.models.requests import AccountInfo
+        w = Wallet.from_seed(seed.strip())
+        res = client.request(AccountInfo(account=w.address))
+        if "account_data" in res.result:
+            return True, w.address
+        return False, w.address
+    except Exception:
+        return False, ""
+
+
 def _ensure_cloud_testnet_wallets():
-    if not settings.TREASURY_SEED or settings.TREASURY_SEED.startswith("sXXX"):
-        try:
-            from xrpl.clients import JsonRpcClient
-            from xrpl.wallet import generate_faucet_wallet
-            logger.info("[Cloud Init] Auto-provisioning XRPL Testnet Treasury & Merchant wallets...")
-            client = JsonRpcClient(settings.XRPL_JSON_RPC_URL)
+    try:
+        from xrpl.clients import JsonRpcClient
+        from xrpl.wallet import generate_faucet_wallet
+        client = JsonRpcClient(settings.XRPL_JSON_RPC_URL)
+
+        t_ok, t_addr = _is_wallet_funded(client, settings.TREASURY_SEED)
+        if not t_ok:
+            logger.info("[XRPL Init] Provisioning funded Treasury Wallet from XRPL Testnet Faucet...")
             tw = generate_faucet_wallet(client, debug=False)
-            mw = generate_faucet_wallet(client, debug=False)
             settings.TREASURY_SEED = tw.seed
             settings.TREASURY_WALLET_ADDRESS = tw.address
+        else:
+            settings.TREASURY_WALLET_ADDRESS = t_addr
+
+        m_ok, m_addr = _is_wallet_funded(client, settings.MERCHANT_SEED)
+        if not m_ok or m_addr == settings.TREASURY_WALLET_ADDRESS:
+            logger.info("[XRPL Init] Provisioning funded Merchant Wallet from XRPL Testnet Faucet...")
+            mw = generate_faucet_wallet(client, debug=False)
             settings.MERCHANT_SEED = mw.seed
             settings.MERCHANT_WALLET_ADDRESS = mw.address
-            logger.info("[Cloud Init] Treasury=%s | Merchant=%s", tw.address, mw.address)
-        except Exception as exc:
-            logger.warning("[Cloud Init] Faucet auto-provision skipped: %s", exc)
+        else:
+            settings.MERCHANT_WALLET_ADDRESS = m_addr
+
+        logger.info(
+            "[XRPL Init] Active Wallets -> Treasury=%s | Merchant=%s",
+            settings.TREASURY_WALLET_ADDRESS,
+            settings.MERCHANT_WALLET_ADDRESS,
+        )
+    except Exception as exc:
+        logger.warning("[XRPL Init] Wallet check skipped: %s", exc)
 
 
 @asynccontextmanager
@@ -59,7 +89,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Aegis Bridge Crypto (ABC) API",
     description="AI-governed XRPL payment gateway for offline USSD commerce and HTTP 402 M2M payments.",
-    version="0.3.0",
+    version="0.3.1",
     lifespan=lifespan,
 )
 
@@ -93,6 +123,7 @@ def health_check():
         "db":       db_status,
         "xrpl":     "testnet (https://s.altnet.rippletest.net:51234)",
         "currency": getattr(settings, "active_currency", "XRP"),
+        "merchant": settings.MERCHANT_WALLET_ADDRESS,
         "watcher":  "active (smart AccountTx poll)",
     }
 
@@ -113,4 +144,4 @@ if os.path.isdir(FRONTEND_DIST):
 else:
     @app.api_route("/", methods=["GET", "HEAD"], tags=["Root"])
     def read_root():
-        return {"status": "Aegis Bridge Crypto Engine Active", "version": "0.3.0"}
+        return {"status": "Aegis Bridge Crypto Engine Active", "version": "0.3.1"}

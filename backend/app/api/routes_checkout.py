@@ -1,6 +1,6 @@
 """
 app/api/routes_checkout.py
-───────────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Checkout creation, live ZAR/USD FX quoting, order polling, and atomic on-chain refunds.
 """
 
@@ -35,7 +35,7 @@ def get_lan_ip() -> str:
 class CheckoutRequest(BaseModel):
     phone_number: str
     amount_zar: float
-    merchant_address: str = settings.MERCHANT_WALLET_ADDRESS
+    merchant_address: str | None = None
 
 
 def get_live_zar_to_usdc_rate() -> tuple[float, str]:
@@ -57,7 +57,7 @@ def get_live_zar_to_usdc_rate() -> tuple[float, str]:
             rate = float(response.json()["exchange_rate"])
             return rate, "live (api-ninjas)"
         except Exception as exc:
-            logger.warning("API Ninjas FX failed (%s) — trying open.er-api.com", exc)
+            logger.warning("API Ninjas FX failed (%s) â€” trying open.er-api.com", exc)
 
     try:
         res = requests.get("https://open.er-api.com/v6/latest/ZAR", timeout=3)
@@ -65,7 +65,7 @@ def get_live_zar_to_usdc_rate() -> tuple[float, str]:
         rate = float(res.json()["rates"]["USD"])
         return rate, "live (open.er-api)"
     except Exception as exc:
-        logger.warning("Live FX fetch failed (%s) — using fallback %.4f", exc, settings.FX_FALLBACK_RATE)
+        logger.warning("Live FX fetch failed (%s) â€” using fallback %.4f", exc, settings.FX_FALLBACK_RATE)
         return settings.FX_FALLBACK_RATE, "fallback (0.055)"
 
 
