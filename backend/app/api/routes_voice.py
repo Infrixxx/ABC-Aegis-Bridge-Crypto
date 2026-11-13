@@ -109,27 +109,40 @@ def voice_confirm(
     if dtmfDigits == "1":
         conn = sqlite3.connect(settings.DB_FILE)
         cursor = conn.cursor()
+        updated = False
         try:
             cursor.execute(
                 "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ? AND status = 'PENDING'",
                 (order_id,),
             )
-            conn.commit()
+            if cursor.rowcount == 1:
+                updated = True
+                conn.commit()
+            else:
+                conn.rollback()
         finally:
             conn.close()
 
-        def _run_pipeline():
-            run_payment_pipeline(order_id=order_id)
+        if updated:
+            def _run_pipeline():
+                run_payment_pipeline(order_id=order_id)
 
-        thread = threading.Thread(target=_run_pipeline, daemon=True)
-        thread.start()
+            thread = threading.Thread(target=_run_pipeline, daemon=True)
+            thread.start()
 
-        xml = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<Response>\n'
-            '    <Say>Thank you. Your payment is confirmed and is now settling on the XRP Ledger. Goodbye.</Say>\n'
-            '</Response>'
-        )
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<Response>\n'
+                '    <Say>Thank you. Your payment is confirmed and is now settling on the XRP Ledger. Goodbye.</Say>\n'
+                '</Response>'
+            )
+        else:
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<Response>\n'
+                '    <Say>This order is already being processed or has already been settled. Goodbye.</Say>\n'
+                '</Response>'
+            )
     else:
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'

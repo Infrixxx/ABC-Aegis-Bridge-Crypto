@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/agents/transaction_agent.py
 ─────────────────────────────────
 Transaction Agent — final node in the LangGraph pipeline.
@@ -25,6 +25,23 @@ def transaction_node(state: ABCState) -> ABCState:
         "[Transaction] Settling order=%s amount=%.6f to=%s tag=%d",
         order_id, amount_usdc, merchant_address, destination_tag,
     )
+
+    # Pre-flight check: ensure order wasn't paid concurrently
+    conn_pre = sqlite3.connect(settings.DB_FILE)
+    cursor_pre = conn_pre.cursor()
+    try:
+        cursor_pre.execute("SELECT status, tx_hash FROM orders WHERE order_id = ?", (order_id,))
+        pre_row = cursor_pre.fetchone()
+        if pre_row and pre_row[0] == "PAID":
+            logger.warning("[Transaction] Order %s already PAID with tx_hash=%s. Short-circuiting.", order_id, pre_row[1])
+            return {
+                **state,
+                "status": "PAID",
+                "tx_hash": pre_row[1],
+                "error": None,
+            }
+    finally:
+        conn_pre.close()
 
     try:
         result = xrpl_service.send_payment(

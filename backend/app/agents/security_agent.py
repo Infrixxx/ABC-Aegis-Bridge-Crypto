@@ -16,7 +16,7 @@ The supervisor routes to END, skipping settlement entirely.
 
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.agents.state import ABCState
 from app.core.config import settings
@@ -43,7 +43,7 @@ def security_node(state: ABCState) -> ABCState:
     cursor = conn.cursor()
 
     try:
-        # ── Check 1: FX Lock Expiry ───────────────────────────────────────────
+        # ── Check 1: Order Existence & Status ─────────────────────────────────
         cursor.execute(
             "SELECT fx_lock_expires_at, status FROM orders WHERE order_id = ?",
             (order_id,),
@@ -62,23 +62,30 @@ def security_node(state: ABCState) -> ABCState:
 
         fx_lock_expires_at, current_status = row
 
-        # Guard against re-processing already settled orders
-        if current_status == "PAID":
-            logger.info("[Security] Order %s already PAID — skipping", order_id)
+        # Critical Guard: Replay Attack & Duplicate Payment Prevention
+        if current_status in ("PAID", "REFUNDED", "FAILED"):
+            logger.warning("[Security] Order %s already in terminal state '%s' — rejecting duplicate payment", order_id, current_status)
             return {
                 **state,
                 "is_flagged": False,
                 "fx_expired": False,
-                "status": "PAID",
-                "error": None,
+                "status": "REJECTED",
+                "error": f"Order {order_id} has already been settled ({current_status}). Re-payment is forbidden.",
             }
 
-        if datetime.utcnow() > datetime.fromisoformat(fx_lock_expires_at):
+        # Handle timezone parsing safely
+        try:
+            expires_dt = datetime.fromisoformat(fx_lock_expires_at)
+            now_dt = datetime.now(timezone.utc) if expires_dt.tzinfo else datetime.utcnow()
+            is_expired = now_dt > expires_dt
+        except Exception:
+            is_expired = False
+
+        if is_expired:
             logger.warning(
                 "[Security] FX lock expired for order=%s (expired=%s)",
                 order_id, fx_lock_expires_at,
             )
-            # Update DB so USSD handler reflects the correct status
             cursor.execute(
                 "UPDATE orders SET status = 'LATE' WHERE order_id = ?",
                 (order_id,),
@@ -136,9 +143,10 @@ def route_after_security(state: ABCState) -> str:
     Conditional edge function: tells LangGraph where to go after the security node.
     Returns "proceed" (→ guardian) or "reject" (→ END).
     """
-    if state["status"] == "REJECTED":
+    if state.get("is_flagged") or state.get("fx_expired") or state.get("status") != "PENDING":
         logger.info(
-            "[Security] Routing to END (rejected): %s", state.get("error")
+            "[Security] Routing to END (rejected/blocked): status=%s error=%s",
+            state.get("status"), state.get("error")
         )
         return "reject"
     return "proceed"

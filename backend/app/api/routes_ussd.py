@@ -136,13 +136,18 @@ def _confirm_payment(
                 "Please ask the merchant for a new code."
             )
 
+        # Atomic status update: only update if still PENDING
         cursor.execute(
-            "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ?",
+            "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ? AND status = 'PENDING'",
             (order_id,),
         )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return "END Order is already being processed or has been paid. Thank you!"
+
         conn.commit()
         logger.info(
-            "Order %s confirmed by %s — dispatching to LangGraph pipeline",
+            "Order %s atomically locked to PROCESSING by %s — dispatching to LangGraph pipeline",
             order_id, phone_number,
         )
 

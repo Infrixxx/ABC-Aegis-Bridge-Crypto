@@ -24,6 +24,10 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
+    # Enable WAL mode and timeout for high-concurrency thread safety
+    cursor.execute("PRAGMA journal_mode = WAL;")
+    cursor.execute("PRAGMA busy_timeout = 5000;")
+
     # ── 1. Users Table ────────────────────────────────────────────────────────
     # Maps a telecom phone number to a custodial XRPL wallet address.
     cursor.execute('''
