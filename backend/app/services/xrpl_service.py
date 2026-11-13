@@ -21,7 +21,7 @@ from xrpl.models.requests import AccountChannels, AccountInfo
 from xrpl.transaction import submit_and_wait
 from xrpl.utils import xrp_to_drops, drops_to_xrp
 from xrpl.models.amounts import IssuedCurrencyAmount
-from xrpl.models.transactions.payment import Memo
+from xrpl.models.transactions import Memo
 
 from app.core.config import settings
 
