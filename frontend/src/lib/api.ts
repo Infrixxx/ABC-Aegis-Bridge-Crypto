@@ -1,10 +1,14 @@
-import type {
+﻿import type {
+  AuthResponse,
   CheckoutResponse,
   DeviceInfo,
   HealthResponse,
+  LoginBody,
   Order,
+  RegisterBody,
   RegisterDeviceBody,
   RegisterDeviceResponse,
+  User,
 } from "./types"
 
 export const API_BASE: string =
@@ -22,7 +26,6 @@ export class ApiError extends Error {
   }
 }
 
-/** FastAPI errors arrive as {detail: string | {message} | [{msg}]}. */
 function extractDetail(data: unknown): string | null {
   if (!data || typeof data !== "object") return null
   const detail = (data as { detail?: unknown }).detail
@@ -41,9 +44,15 @@ function extractDetail(data: unknown): string | null {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("abc.auth.token.v1") : null
+  const headers = new Headers(init?.headers)
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`)
+  }
+
   let res: Response
   try {
-    res = await fetch(`${API_BASE}${path}`, init)
+    res = await fetch(`${API_BASE}${path}`, { ...init, headers })
   } catch {
     throw new ApiError("Can't reach the payment server. Check your connection.", 0)
   }
@@ -69,10 +78,25 @@ const json = (body: unknown): RequestInit => ({
 })
 
 export const api = {
+  // ── Authentication ──────────────────────────────────────────────────────────
+  login: (body: LoginBody) => request<AuthResponse>("/api/auth/login", json(body)),
+  register: (body: RegisterBody) => request<AuthResponse>("/api/auth/register", json(body)),
+  me: () => request<User>("/api/auth/me"),
+  logout: () => request<{ message: string }>("/api/auth/logout", { method: "POST" }),
+
+  // ── Health ──────────────────────────────────────────────────────────────────
   health: () => request<HealthResponse>("/health"),
 
-  createCharge: (phone: string, amountZar: number) =>
-    request<CheckoutResponse>("/api/checkout/", json({ phone_number: phone, amount_zar: amountZar })),
+  // ── Checkout & Orders ───────────────────────────────────────────────────────
+  createCharge: (phone: string, amountZar: number, merchantAddress?: string) =>
+    request<CheckoutResponse>(
+      "/api/checkout/",
+      json({
+        phone_number: phone,
+        amount_zar: amountZar,
+        ...(merchantAddress ? { merchant_address: merchantAddress } : {}),
+      }),
+    ),
 
   getOrder: (orderId: string) => request<Order>(`/api/checkout/${encodeURIComponent(orderId)}`),
 
@@ -82,7 +106,6 @@ export const api = {
   refund: (orderId: string, reason = "Merchant POS refund") =>
     request<{ status: string; message: string }>("/api/checkout/refund", json({ order_id: orderId, reason })),
 
-  /** Demo shortcut: replays what Africa's Talking would POST after the customer confirms. */
   simulateUssdConfirm: async (orderId: string, phone: string) => {
     const body = new URLSearchParams({
       sessionId: `demo-${orderId}`,
@@ -104,6 +127,10 @@ export const api = {
     return res.text()
   },
 
+  // ── Machines & IoT ──────────────────────────────────────────────────────────
+  listDevices: () =>
+    request<{ devices: DeviceInfo[] }>("/api/machine/").then((r) => r.devices ?? []),
+
   getDevice: (deviceId: string) => request<DeviceInfo>(`/api/machine/${encodeURIComponent(deviceId)}`),
 
   registerDevice: (body: RegisterDeviceBody) =>
@@ -119,4 +146,10 @@ export const api = {
     request<{ status: string }>(`/api/machine/${encodeURIComponent(deviceId)}/revoke`, {
       method: "POST",
     }),
+
+  payDevice: (deviceId: string, orderId: string, channelId: string) =>
+    request<{ status: string; tx_hash: string; explorer_url: string }>(
+      `/api/machine/${encodeURIComponent(deviceId)}/pay`,
+      json({ order_id: orderId, channel_id: channelId }),
+    ),
 }

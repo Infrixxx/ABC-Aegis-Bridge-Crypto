@@ -1,19 +1,11 @@
-"""
+﻿"""
 app/agents/security_agent.py
 ──────────────────────────────
 Security Agent — first node in the LangGraph pipeline.
-
-Checks performed (in order):
-  1. FX lock expiry  — rejects orders where the 60-second rate window has closed.
-  2. Flagged address — rejects transactions to wallets in the threat cache.
-
-Both checks read from SQLite (the Hybrid Ledger), not from agent-internal state,
-ensuring the security layer is data-driven and auditable.
-
-If either check fails, the agent sets status=REJECTED and error=<reason>.
-The supervisor routes to END, skipping settlement entirely.
+Uses an O(1) in-memory threat cache synced with SQLite `flagged_addresses`.
 """
 
+import time
 import sqlite3
 import logging
 from datetime import datetime, timezone
@@ -23,14 +15,41 @@ from app.core.config import settings
 
 logger = logging.getLogger("abc.agents.security")
 
+_THREAT_CACHE: dict[str, str] = {
+    "rFlaggedSanctionedDrainerWallet666": "OFAC / Sanctioned Crypto Drainer",
+    "rKnownPhishingExploitAddress999": "Known Phishing & Replay Exploit Actor",
+    "rSybilBotnetAggregatorWallet000": "Automated Sybil Botnet Drain Address",
+}
+_CACHE_LOADED = False
+
+
+def _check_threat(wallet_address: str, cursor) -> str | None:
+    global _CACHE_LOADED
+    if not _CACHE_LOADED:
+        try:
+            cursor.execute("SELECT wallet_address, flag_reason FROM flagged_addresses")
+            for addr, reason in cursor.fetchall():
+                _THREAT_CACHE[addr] = reason
+            _CACHE_LOADED = True
+        except Exception:
+            pass
+
+    if wallet_address in _THREAT_CACHE:
+        return _THREAT_CACHE[wallet_address]
+
+    cursor.execute(
+        "SELECT flag_reason FROM flagged_addresses WHERE wallet_address = ?",
+        (wallet_address,),
+    )
+    row = cursor.fetchone()
+    if row:
+        _THREAT_CACHE[wallet_address] = row[0]
+        return row[0]
+    return None
+
 
 def security_node(state: ABCState) -> ABCState:
-    """
-    LangGraph node: validates the order before allowing settlement.
-
-    Returns an updated state dict. Sets is_flagged=True or fx_expired=True
-    if any check fails, along with status=REJECTED and an error message.
-    """
+    t0 = time.perf_counter()
     order_id = state["order_id"]
     merchant_address = state["merchant_address"]
 
@@ -43,7 +62,28 @@ def security_node(state: ABCState) -> ABCState:
     cursor = conn.cursor()
 
     try:
-        # ── Check 1: Order Existence & Status ─────────────────────────────────
+        # ── Check 1: O(1) In-Memory Threat Cache & SQLite Blacklist ───────────
+        flag_reason = _check_threat(merchant_address, cursor)
+        if flag_reason:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.warning(
+                "[Security] THREAT CACHE BLOCK (%.2fms) merchant=%s reason=%s",
+                elapsed_ms, merchant_address, flag_reason,
+            )
+            cursor.execute(
+                "UPDATE orders SET status = 'REJECTED' WHERE order_id = ?",
+                (order_id,),
+            )
+            conn.commit()
+            return {
+                **state,
+                "is_flagged": True,
+                "fx_expired": False,
+                "status": "REJECTED",
+                "error": f"Security Agent Threat Block ({elapsed_ms:.2f}ms): {flag_reason}",
+            }
+
+        # ── Check 2: Order Existence, Replay Guard & 60s FX Expiry ────────────
         cursor.execute(
             "SELECT fx_lock_expires_at, status FROM orders WHERE order_id = ?",
             (order_id,),
@@ -62,18 +102,19 @@ def security_node(state: ABCState) -> ABCState:
 
         fx_lock_expires_at, current_status = row
 
-        # Critical Guard: Replay Attack & Duplicate Payment Prevention
         if current_status in ("PAID", "REFUNDED", "FAILED"):
-            logger.warning("[Security] Order %s already in terminal state '%s' — rejecting duplicate payment", order_id, current_status)
+            logger.warning(
+                "[Security] Order %s already in terminal state '%s' — blocking replay",
+                order_id, current_status,
+            )
             return {
                 **state,
                 "is_flagged": False,
                 "fx_expired": False,
                 "status": "REJECTED",
-                "error": f"Order {order_id} has already been settled ({current_status}). Re-payment is forbidden.",
+                "error": f"Order {order_id} already {current_status}. Duplicate settlement blocked.",
             }
 
-        # Handle timezone parsing safely
         try:
             expires_dt = datetime.fromisoformat(fx_lock_expires_at)
             now_dt = datetime.now(timezone.utc) if expires_dt.tzinfo else datetime.utcnow()
@@ -99,36 +140,11 @@ def security_node(state: ABCState) -> ABCState:
                 "error": "FX rate lock expired. Order must be re-created.",
             }
 
-        # ── Check 2: Flagged Address ──────────────────────────────────────────
-        cursor.execute(
-            "SELECT flag_reason FROM flagged_addresses WHERE wallet_address = ?",
-            (merchant_address,),
-        )
-        flag_row = cursor.fetchone()
-
-        if flag_row:
-            reason = flag_row[0]
-            logger.warning(
-                "[Security] FLAGGED merchant=%s reason=%s", merchant_address, reason,
-            )
-            cursor.execute(
-                "UPDATE orders SET status = 'REJECTED' WHERE order_id = ?",
-                (order_id,),
-            )
-            conn.commit()
-            return {
-                **state,
-                "is_flagged": True,
-                "fx_expired": False,
-                "status": "REJECTED",
-                "error": f"Merchant wallet is flagged: {reason}",
-            }
-
     finally:
         conn.close()
 
-    # ── All checks passed ─────────────────────────────────────────────────────
-    logger.info("[Security] ✅ Order %s cleared all security checks", order_id)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    logger.info("[Security] Order %s cleared security checks in %.2fms", order_id, elapsed_ms)
     return {
         **state,
         "is_flagged": False,
@@ -139,14 +155,10 @@ def security_node(state: ABCState) -> ABCState:
 
 
 def route_after_security(state: ABCState) -> str:
-    """
-    Conditional edge function: tells LangGraph where to go after the security node.
-    Returns "proceed" (→ guardian) or "reject" (→ END).
-    """
     if state.get("is_flagged") or state.get("fx_expired") or state.get("status") != "PENDING":
         logger.info(
             "[Security] Routing to END (rejected/blocked): status=%s error=%s",
-            state.get("status"), state.get("error")
+            state.get("status"), state.get("error"),
         )
         return "reject"
     return "proceed"

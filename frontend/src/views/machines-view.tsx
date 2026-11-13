@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type FormEvent } from "react"
-import { Cpu, Loader2, Plus, RefreshCw, ShieldOff, X } from "lucide-react"
+﻿import { useState, type CSSProperties, type FormEvent } from "react"
+import { Ban, Cpu, ExternalLink, Loader2, Plus, RefreshCw, ShieldAlert, ShieldOff, Sparkles, X, Zap } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -10,14 +10,25 @@ import { ConfirmButton } from "@/components/confirm-button"
 import { Notice } from "@/components/notice"
 import type { useMachines } from "@/hooks/use-machines"
 import type { DeviceInfo } from "@/lib/types"
-import { xrp } from "@/lib/format"
+import { api, ApiError, EXPLORER_TX } from "@/lib/api"
+import { shortHash, xrp, zar } from "@/lib/format"
 import { errorMessage } from "@/lib/utils"
 
 type Ctl = ReturnType<typeof useMachines>
 
+interface SimOutcome {
+  ok: boolean
+  code: number
+  title: string
+  message: string
+  txHash?: string
+}
+
 function MachineCard({ id, info, error, ctl, detail }: { id: string; info: DeviceInfo | null; error: string | null; ctl: Ctl; detail: boolean }) {
   const [amount, setAmount] = useState("")
   const [busy, setBusy] = useState(false)
+  const [simBusy, setSimBusy] = useState<"valid" | "over" | "threat" | null>(null)
+  const [simOutcome, setSimOutcome] = useState<SimOutcome | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   if (!info) {
@@ -57,6 +68,49 @@ function MachineCard({ id, info, error, ctl, detail }: { id: string; info: Devic
     }
   }
 
+  const runAgentSpend = async (mode: "valid" | "over" | "threat") => {
+    if (!info.channel_id) {
+      setErr("This machine has no active XRPL Payment Channel.")
+      return
+    }
+    setSimBusy(mode)
+    setSimOutcome(null)
+    setErr(null)
+    const zarAmount = mode === "over" ? 500 : 35
+    const merchantAddr =
+      mode === "threat" ? "rFlaggedSanctionedDrainerWallet666" : undefined
+    try {
+      const order = await api.createCharge(
+        info.operator_phone || "+27839998888",
+        zarAmount,
+        merchantAddr,
+      )
+      const res = await api.payDevice(id, order.order_id, info.channel_id)
+      setSimOutcome({
+        ok: true,
+        code: 200,
+        title: `HTTP 200 · Autonomous machine paid ${zar(zarAmount)}`,
+        message: `Order #${order.order_id} (${order.quoted_crypto} RLUSD) passed Security & Guardian checks and settled on XRPL Testnet.`,
+        txHash: res.tx_hash,
+      })
+      await ctl.refresh()
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 400
+      setSimOutcome({
+        ok: false,
+        code: status,
+        title:
+          status === 402
+            ? "HTTP 402 Payment Required · Blocked by Guardian Agent"
+            : `Blocked (${status}) · Security & Mandate Policy Enforced`,
+        message: errorMessage(e),
+      })
+      await ctl.refresh()
+    } finally {
+      setSimBusy(null)
+    }
+  }
+
   return (
     <Card>
       <CardContent className="space-y-4">
@@ -80,6 +134,66 @@ function MachineCard({ id, info, error, ctl, detail }: { id: string; info: Devic
             <span className="num text-sm text-muted-foreground">of {xrp(cap)} XRP left to spend</span>
           </div>
           <Meter value={left} max={cap} tone={tone} label={`${Math.round(pct * 100)} percent of the limit left`} />
+        </div>
+
+        {/* Live Judge Demo Controls: Happy Path vs Blocked Paths */}
+        <div className="space-y-2.5 rounded-2xl border border-dashed border-border bg-muted/40 p-3.5">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <Sparkles className="size-3.5" aria-hidden /> Demo: autonomous agent payments
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={simBusy !== null}
+              onClick={() => void runAgentSpend("valid")}
+            >
+              {simBusy === "valid" ? <Loader2 className="animate-spin" aria-hidden /> : <Zap aria-hidden />}
+              Pay R35 (within limit)
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={simBusy !== null}
+              onClick={() => void runAgentSpend("over")}
+            >
+              {simBusy === "over" ? <Loader2 className="animate-spin" aria-hidden /> : <ShieldAlert aria-hidden />}
+              Try R500 (over limit → 402)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={simBusy !== null}
+              onClick={() => void runAgentSpend("threat")}
+            >
+              {simBusy === "threat" ? <Loader2 className="animate-spin" aria-hidden /> : <Ban aria-hidden />}
+              Try sanctioned wallet
+            </Button>
+          </div>
+
+          {simOutcome && (
+            <div
+              role="status"
+              className={`mt-2 rounded-xl border px-3 py-2.5 text-sm ${
+                simOutcome.ok
+                  ? "border-success/40 bg-success-soft text-success-text"
+                  : "border-danger/40 bg-danger-soft text-danger-text"
+              }`}
+            >
+              <p className="font-semibold">{simOutcome.title}</p>
+              <p className="mt-0.5 text-xs opacity-90">{simOutcome.message}</p>
+              {simOutcome.txHash && (
+                <a
+                  href={`${EXPLORER_TX}/${simOutcome.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 font-mono text-xs underline underline-offset-4"
+                >
+                  Tx {shortHash(simOutcome.txHash)} <ExternalLink className="size-3" aria-hidden />
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
         {!info.is_key_revoked && (
@@ -128,9 +242,9 @@ function MachineCard({ id, info, error, ctl, detail }: { id: string; info: Devic
 }
 
 function AddMachine({ ctl }: { ctl: Ctl }) {
-  const [id, setId] = useState("")
-  const [phone, setPhone] = useState("")
-  const [limit, setLimit] = useState("50")
+  const [id, setId] = useState("Charger-01")
+  const [phone, setPhone] = useState("+27821234567")
+  const [limit, setLimit] = useState("10")
   const [supplier, setSupplier] = useState("")
   const [existing, setExisting] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -150,7 +264,6 @@ function AddMachine({ ctl }: { ctl: Ctl }) {
           approved_suppliers: supplier.trim() ? [supplier.trim()] : [],
         })
       setId("")
-      setPhone("")
       setSupplier("")
     } catch (x) {
       setErr(errorMessage(x))
@@ -208,7 +321,7 @@ export function MachinesView({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
       <div className="reveal flex items-end justify-between gap-3 px-1">
         <div>
           <h2 className="font-display text-3xl font-semibold tracking-tight">Your machines</h2>
-          <p className="text-sm text-muted-foreground">Each machine can only spend up to the limit you set.</p>
+          <p className="text-sm text-muted-foreground">Each machine can only spend up to the limit you set on the XRP Ledger.</p>
         </div>
         {ctl.ids.length > 0 && (
           <Button variant="ghost" size="icon" onClick={() => void ctl.refresh()} aria-label="Refresh machines">
@@ -221,7 +334,7 @@ export function MachinesView({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
           <CardContent className="py-8 text-center text-muted-foreground">
             <Cpu className="mx-auto mb-3 size-10 opacity-40" aria-hidden />
             <p className="font-display text-xl text-foreground">No machines yet</p>
-            <p className="mt-1 text-sm">Add one below to give it a spending limit.</p>
+            <p className="mt-1 text-sm">Add one below to fund an on-ledger XRPL Payment Channel limit.</p>
           </CardContent>
         </Card>
       )}

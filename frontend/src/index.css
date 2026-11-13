@@ -6,13 +6,13 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   "Marula" design tokens
-   Warm cream + ink green, with one marigold accent reserved for the primary
-   action. Status colours are semantic. data-palette swaps the status set (and
-   the accent for ink) for colour-vision needs; data-contrast="more" firms up
-   borders and secondary text.
+   "Marula" & Multi-Palette Accessible Design Tokens
+   • Standard: Warm cream + ink green + marigold gold accent
+   • Red-Green Safe (Protan/Deutan): Crisp slate ice + midnight ink + cobalt blue accent + Wong vermillion
+   • Blue-Yellow Safe (Tritan): Eucalyptus jade + evergreen ink + viridian teal accent + crimson rose
    ───────────────────────────────────────────────────────────────────────────── */
-:root {
+:root,
+html[data-palette="standard"] {
   --background: #f7f1e5;
   --foreground: #1b2a24;
   --card: #fffcf5;
@@ -44,7 +44,8 @@
   --glow-2: rgb(31 111 92 / 0.14);
 }
 
-.dark {
+.dark,
+html.dark[data-palette="standard"] {
   --background: #0c1512;
   --foreground: #f3eedd;
   --card: #13201b;
@@ -68,73 +69,139 @@
   --danger-soft: rgb(240 138 110 / 0.13);
   --danger-text: #f5a892;
 
+  --decor-1: #f2b33d;
+  --decor-2: #4fcb93;
+  --decor-3: #f08a6e;
   --glow-1: rgb(242 179 61 / 0.07);
   --glow-2: rgb(79 203 147 / 0.08);
 }
 
-/* Red–green safe (protan / deutan): blue success, vermillion danger, yellow
-   warning, and an ink primary so no status colour reads as the accent. */
+/* Red–green safe (protan / deutan): Entire UI transforms into high-contrast
+   Cobalt Blue & Ice Slate, with high-visibility Amber & Vermillion. */
 html[data-palette="rg"] {
-  --primary: #1b2a24;
-  --primary-foreground: #fffcf5;
-  --link: #1b2a24;
-  --ring: #1b2a24;
+  --background: #eef4fb;
+  --foreground: #0c1a29;
+  --card: #ffffff;
+  --muted: #dbe7f4;
+  --muted-foreground: #475e77;
+  --border: #bcd2e8;
+  --input: #7b9bbd;
+
+  --primary: #0062cc;
+  --primary-foreground: #ffffff;
+  --link: #0050a8;
+  --ring: #0062cc;
+
   --success: #0072b2;
-  --success-soft: #e6f1f9;
-  --success-text: #005a8e;
-  --warning: #b8860b;
-  --warning-soft: #fff6d1;
-  --warning-text: #6b5000;
+  --success-soft: #e0f2fe;
+  --success-text: #0369a1;
+  --warning: #d97706;
+  --warning-soft: #fef3c7;
+  --warning-text: #92400e;
   --danger: #d55e00;
-  --danger-soft: #fdeee2;
-  --danger-text: #9a4200;
-}
-html.dark[data-palette="rg"] {
-  --primary: #f3eedd;
-  --primary-foreground: #0c1512;
-  --link: #f3eedd;
-  --ring: #f3eedd;
-  --success: #56b4e9;
-  --success-soft: rgb(86 180 233 / 0.14);
-  --success-text: #8fcbf0;
-  --warning: #f0e442;
-  --warning-soft: rgb(240 228 66 / 0.12);
-  --warning-text: #f5ec7a;
-  --danger: #f28a3f;
-  --danger-soft: rgb(242 138 63 / 0.14);
-  --danger-text: #f7a66b;
+  --danger-soft: #ffedd5;
+  --danger-text: #9a3412;
+
+  --decor-1: #0062cc;
+  --decor-2: #d97706;
+  --decor-3: #d55e00;
+  --glow-1: rgb(0 98 204 / 0.18);
+  --glow-2: rgb(217 119 6 / 0.16);
 }
 
-/* Blue–yellow safe (tritan): green / rose-red status, ink primary. */
+html.dark[data-palette="rg"] {
+  --background: #08111d;
+  --foreground: #f0f6fc;
+  --card: #0e1e30;
+  --muted: #152b42;
+  --muted-foreground: #8faec9;
+  --border: #1f3f61;
+  --input: #3b6691;
+
+  --primary: #38bdf8;
+  --primary-foreground: #04192b;
+  --link: #60a5fa;
+  --ring: #38bdf8;
+
+  --success: #56b4e9;
+  --success-soft: rgb(86 180 233 / 0.15);
+  --success-text: #bae6fd;
+  --warning: #facc15;
+  --warning-soft: rgb(250 204 21 / 0.14);
+  --warning-text: #fef08a;
+  --danger: #fb923c;
+  --danger-soft: rgb(251 146 60 / 0.15);
+  --danger-text: #fed7aa;
+
+  --decor-1: #38bdf8;
+  --decor-2: #facc15;
+  --decor-3: #fb923c;
+  --glow-1: rgb(56 189 248 / 0.12);
+  --glow-2: rgb(250 204 21 / 0.10);
+}
+
+/* Blue–yellow safe (tritan): Entire UI transforms into cool Eucalyptus &
+   Viridian Pine, with high-visibility Forest Emerald and Crimson Rose. */
 html[data-palette="by"] {
-  --primary: #1b2a24;
-  --primary-foreground: #fffcf5;
-  --link: #1b2a24;
-  --ring: #1b2a24;
+  --background: #f0f6f3;
+  --foreground: #09211a;
+  --card: #ffffff;
+  --muted: #d9ebe2;
+  --muted-foreground: #3d6354;
+  --border: #bdd9cc;
+  --input: #7ba896;
+
+  --primary: #0d766e;
+  --primary-foreground: #ffffff;
+  --link: #0f5f58;
+  --ring: #0d766e;
+
   --success: #15803d;
-  --success-soft: #e9f7ee;
+  --success-soft: #dcfce7;
   --success-text: #166534;
   --warning: #c2410c;
-  --warning-soft: #fff1e6;
+  --warning-soft: #ffedd5;
   --warning-text: #9a3412;
   --danger: #be123c;
-  --danger-soft: #fdebef;
+  --danger-soft: #ffe4e6;
   --danger-text: #9f1239;
+
+  --decor-1: #0d766e;
+  --decor-2: #15803d;
+  --decor-3: #be123c;
+  --glow-1: rgb(13 118 110 / 0.18);
+  --glow-2: rgb(190 18 60 / 0.14);
 }
+
 html.dark[data-palette="by"] {
-  --primary: #f3eedd;
-  --primary-foreground: #0c1512;
-  --link: #f3eedd;
-  --ring: #f3eedd;
+  --background: #061511;
+  --foreground: #edf8f3;
+  --card: #0d231c;
+  --muted: #143329;
+  --muted-foreground: #8db5a4;
+  --border: #1e4b3c;
+  --input: #3a7560;
+
+  --primary: #2dd4bf;
+  --primary-foreground: #03211a;
+  --link: #5eead4;
+  --ring: #2dd4bf;
+
   --success: #4ade80;
-  --success-soft: rgb(74 222 128 / 0.12);
-  --success-text: #86efac;
-  --warning: #fdba74;
-  --warning-soft: rgb(253 186 116 / 0.12);
+  --success-soft: rgb(74 222 128 / 0.15);
+  --success-text: #bbf7d0;
+  --warning: #fb923c;
+  --warning-soft: rgb(251 146 60 / 0.15);
   --warning-text: #fed7aa;
   --danger: #fb7185;
-  --danger-soft: rgb(251 113 133 / 0.14);
-  --danger-text: #fda4af;
+  --danger-soft: rgb(251 113 133 / 0.15);
+  --danger-text: #fecdd3;
+
+  --decor-1: #2dd4bf;
+  --decor-2: #4ade80;
+  --decor-3: #fb7185;
+  --glow-1: rgb(45 212 191 / 0.12);
+  --glow-2: rgb(251 113 133 / 0.10);
 }
 
 html[data-contrast="more"] {

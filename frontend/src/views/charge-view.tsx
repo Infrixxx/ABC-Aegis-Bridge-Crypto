@@ -80,18 +80,34 @@ export function ChargeView({ ctl, detail }: { ctl: ReturnType<typeof useCharge>;
           >
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-display text-2xl font-semibold tracking-tight">How much?</h2>
-              {voice.supported && (
+              <div className="flex items-center gap-2">
                 <Button
+                  type="button"
                   variant={voice.listening ? "danger" : "secondary"}
                   size="sm"
                   onClick={voice.toggle}
                   aria-pressed={voice.listening}
+                  className={cn(voice.listening && "animate-pulse")}
                 >
-                  {voice.listening ? <MicOff aria-hidden /> : <Mic aria-hidden />}
+                  {voice.listening ? <MicOff className="size-4 animate-bounce" aria-hidden /> : <Mic className="size-4" aria-hidden />}
                   {voice.listening ? "Listening…" : "Speak"}
                 </Button>
-              )}
+              </div>
             </div>
+
+            {voice.listening && (
+              <div className="flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-medium text-foreground">
+                <span className="relative flex size-2.5">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-danger opacity-75" />
+                  <span className="relative inline-flex size-2.5 rounded-full bg-danger" />
+                </span>
+                <span>
+                  {voice.interimTranscript
+                    ? `Heard: “${voice.interimTranscript}”`
+                    : "Listening for amount… (e.g., “Fifty rand”, “Bread 18 rand”, or “Pinkie”)"}
+                </span>
+              </div>
+            )}
 
             <div className="rounded-2xl bg-muted/70 px-5 py-5" role="group" aria-label={`Amount ${valid ? zar(value) : "not set"}`}>
               <div className="flex items-baseline gap-2 overflow-hidden">
@@ -103,18 +119,52 @@ export function ChargeView({ ctl, detail }: { ctl: ReturnType<typeof useCharge>;
               </div>
             </div>
 
-            {(voiceNote || voice.error) && (
+            {(voiceNote || voice.error) && !voice.listening && (
               <p role="status" className="-mt-2 text-sm text-muted-foreground">
                 {voice.error ?? voiceNote}
               </p>
             )}
 
-            <div className="flex flex-wrap gap-2">
-              {QUICK.map((q) => (
-                <Button key={q} variant="secondary" size="sm" className="rounded-full" onClick={() => setAmount(String(q))} aria-label={`Set amount to ${q} rand`}>
-                  R{q}
-                </Button>
-              ))}
+            {/* Quick-add chips + Spaza voice test prompts */}
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {QUICK.map((q) => (
+                  <Button key={q} type="button" variant="secondary" size="sm" className="rounded-full" onClick={() => setAmount(String(q))} aria-label={`Set amount to ${q} rand`}>
+                    R{q}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-muted-foreground">
+                <span>Voice test:</span>
+                <button
+                  type="button"
+                  onClick={() => voice.simulate("Bread eighteen rand")}
+                  className="rounded-md bg-muted px-2 py-0.5 font-medium hover:bg-muted/80 hover:text-foreground"
+                >
+                  🎙️ Bread R18
+                </button>
+                <button
+                  type="button"
+                  onClick={() => voice.simulate("Fifty rand")}
+                  className="rounded-md bg-muted px-2 py-0.5 font-medium hover:bg-muted/80 hover:text-foreground"
+                >
+                  🎙️ 50 Rand
+                </button>
+                <button
+                  type="button"
+                  onClick={() => voice.simulate("Airtime one hundred rand")}
+                  className="rounded-md bg-muted px-2 py-0.5 font-medium hover:bg-muted/80 hover:text-foreground"
+                >
+                  🎙️ Airtime R100
+                </button>
+                <button
+                  type="button"
+                  onClick={() => voice.simulate("Two fifty")}
+                  className="rounded-md bg-muted px-2 py-0.5 font-medium hover:bg-muted/80 hover:text-foreground"
+                >
+                  🎙️ 250 Rand
+                </button>
+              </div>
             </div>
 
             <Keypad onKey={press} disabled={ctl.creating} />

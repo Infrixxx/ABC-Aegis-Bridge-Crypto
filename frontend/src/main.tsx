@@ -6,14 +6,17 @@ import "@fontsource-variable/geist-mono"
 import "./index.css"
 import App from "./App"
 import { PreferencesProvider } from "@/hooks/use-preferences"
+import { AuthProvider } from "@/hooks/use-auth"
 import { SpeechProvider } from "@/hooks/use-speech"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <PreferencesProvider>
-      <SpeechProvider>
-        <App />
-      </SpeechProvider>
+      <AuthProvider>
+        <SpeechProvider>
+          <App />
+        </SpeechProvider>
+      </AuthProvider>
     </PreferencesProvider>
   </StrictMode>,
 )

@@ -23,10 +23,11 @@ try:
         # ── XRPL ──────────────────────────────────────────────────────────────
         TREASURY_SEED: str = os.getenv("TREASURY_SEED", "")
         TREASURY_WALLET_ADDRESS: str = os.getenv("TREASURY_WALLET_ADDRESS", "")
-        MERCHANT_WALLET_ADDRESS: str = os.getenv("MERCHANT_WALLET_ADDRESS", "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe")
         MERCHANT_WALLET_ADDRESS: str = os.getenv("MERCHANT_WALLET_ADDRESS", DEFAULT_MERCHANT_WALLET)
         XRPL_JSON_RPC_URL: str = os.getenv("XRPL_JSON_RPC_URL", "https://s.altnet.rippletest.net:51234")
         XRPL_EXPLORER_BASE: str = os.getenv("XRPL_EXPLORER_BASE", "https://testnet.xrpl.org/transactions")
+        AUTH_SECRET_KEY: str = os.getenv("AUTH_SECRET_KEY", "abc_hackathon_secure_jwt_secret_key_2026")
+        AUTH_SECRET_KEY: str = os.getenv("AUTH_SECRET_KEY", "abc_hackathon_secure_jwt_secret_key_2026")
 
         # ── RLUSD (Ripple stablecoin) ──────────────────────────────────────────
         RLUSD_CURRENCY: str = os.getenv("RLUSD_CURRENCY", "RLUSD")
@@ -61,6 +62,7 @@ except ImportError:
         MERCHANT_WALLET_ADDRESS: str = os.getenv("MERCHANT_WALLET_ADDRESS", "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe")
         XRPL_JSON_RPC_URL: str = os.getenv("XRPL_JSON_RPC_URL", "https://s.altnet.rippletest.net:51234")
         XRPL_EXPLORER_BASE: str = os.getenv("XRPL_EXPLORER_BASE", "https://testnet.xrpl.org/transactions")
+        AUTH_SECRET_KEY: str = os.getenv("AUTH_SECRET_KEY", "abc_hackathon_secure_jwt_secret_key_2026")
 
         RLUSD_CURRENCY: str = os.getenv("RLUSD_CURRENCY", "RLUSD")
         RLUSD_ISSUER: str = os.getenv("RLUSD_ISSUER", "")

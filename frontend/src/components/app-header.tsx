@@ -1,9 +1,12 @@
+import { LogOut, User as UserIcon } from "lucide-react"
 import { Logo } from "@/components/logo"
 import { DisplayMenu } from "@/components/display-menu"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { MODES, tabIcon, tabLabel, type TabId } from "@/lib/modes"
 import type { Mode } from "@/hooks/use-preferences"
 import type { HealthState } from "@/hooks/use-health"
+import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 
 export function AppHeader({
@@ -18,6 +21,8 @@ export function AppHeader({
   health: HealthState
 }) {
   const tabs = MODES[mode].tabs
+  const { user, logout } = useAuth()
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
@@ -43,9 +48,45 @@ export function AppHeader({
               )
             })}
           </nav>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-2">
             {health === "offline" && <Badge tone="danger">Offline</Badge>}
+
+            {user && (
+              <div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1 shadow-2xs md:flex">
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary/20 text-xs font-semibold text-primary">
+                  <UserIcon className="size-3.5" />
+                </span>
+                <div className="text-left leading-tight">
+                  <p className="text-xs font-semibold text-foreground">{user.full_name}</p>
+                  <p className="text-[10px] text-muted-foreground">{user.organization || user.role.toUpperCase()}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-danger"
+                  onClick={logout}
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  <LogOut className="size-3.5" />
+                </Button>
+              </div>
+            )}
+
             <DisplayMenu />
+
+            {user && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 text-muted-foreground hover:text-danger md:hidden"
+                onClick={logout}
+                aria-label="Sign out"
+                title="Sign out"
+              >
+                <LogOut className="size-4" />
+              </Button>
+            )}
           </div>
         </div>
       </header>

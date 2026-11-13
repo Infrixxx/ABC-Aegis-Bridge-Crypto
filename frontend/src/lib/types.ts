@@ -68,6 +68,34 @@ export interface HealthResponse {
   xrpl: string
 }
 
+export interface User {
+  id: string
+  email: string
+  full_name: string
+  role: "shop" | "machines" | "pro"
+  organization?: string | null
+  wallet_address?: string | null
+}
+
+export interface AuthResponse {
+  token: string
+  user: User
+}
+
+export interface LoginBody {
+  email: string
+  password: string
+}
+
+export interface RegisterBody {
+  email: string
+  password: string
+  full_name: string
+  role: "shop" | "machines" | "pro"
+  organization?: string
+  wallet_address?: string
+}
+
 export const OPEN_STATUSES: OrderStatus[] = ["PENDING", "PROCESSING"]
 export const FAILED_STATUSES: OrderStatus[] = [
   "LATE",

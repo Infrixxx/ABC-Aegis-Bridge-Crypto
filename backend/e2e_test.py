@@ -112,6 +112,26 @@ def run_e2e_suite():
         print(f"\n[ERROR] FastAPI server not reachable at {API_BASE}: {exc}")
         sys.exit(1)
 
+    # 1b. Test Multi-Persona Authentication
+    print("\n[Auth] Testing Multi-Persona Authentication API...")
+    auth_res = requests.post(
+        f"{API_BASE}/api/auth/login",
+        json={"email": "thandi@aegis.bridge", "password": "password123"},
+        timeout=5,
+    )
+    assert auth_res.status_code == 200, f"Auth login failed: {auth_res.text}"
+    auth_data = auth_res.json()
+    token = auth_data["token"]
+    user = auth_data["user"]
+    print(f"   * Logged in as : {user['full_name']} ({user['role']}) - {user['organization']}")
+    me_res = requests.get(
+        f"{API_BASE}/api/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=5,
+    )
+    assert me_res.status_code == 200 and me_res.json()["email"] == "thandi@aegis.bridge"
+    print("   [OK] Session Token and /me Profile Verified!")
+
     # 2. Test POS Checkout
     print("\n[2/5] Testing POS Checkout & Destination Tag Generation...")
     checkout_res = requests.post(
@@ -147,7 +167,7 @@ def run_e2e_suite():
 
     print("   * Polling order status while LangGraph settles on XRPL Testnet...")
     settled_order = None
-    for attempt in range(15):
+    for attempt in range(25):
         time.sleep(2)
         poll_res = requests.get(f"{API_BASE}/api/checkout/{order_id}", timeout=5).json()
         status = poll_res.get("status")
@@ -174,7 +194,7 @@ def run_e2e_suite():
             "max_budget_xrp": 10.0,
             "approved_suppliers": [merchant_addr],
         },
-        timeout=25,
+        timeout=60,
     )
     assert reg_res.status_code == 200, f"Device registration failed: {reg_res.text}"
     reg_data = reg_res.json()

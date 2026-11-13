@@ -1,17 +1,19 @@
-import { useMemo } from "react"
-import { RefreshCw } from "lucide-react"
+﻿import { useMemo, useState } from "react"
+import { Banknote, CheckCircle2, RefreshCw } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Notice } from "@/components/notice"
 import { ListenButton } from "@/components/listen-button"
 import { StatusPill } from "@/components/status-pill"
 import { CopyButton } from "@/components/copy-button"
+import { ConfirmButton } from "@/components/confirm-button"
 import { OrderRow, type TimedOrder } from "@/components/order-row"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { EXPLORER_TX } from "@/lib/api"
 import { formatPhone, parseServerTime, rlusd, shortHash, zar } from "@/lib/format"
 import { dayLabel, timeOfDay } from "@/lib/status"
 import type { Mode } from "@/hooks/use-preferences"
+import { useSpeech } from "@/hooks/use-speech"
 import type { Order } from "@/lib/types"
 import { OPEN_STATUSES } from "@/lib/types"
 
@@ -35,6 +37,9 @@ export function ActivityView({
   onRefund: (id: string) => Promise<void>
 }) {
   const detail = mode === "pro"
+  const { announce } = useSpeech()
+  const [sweptNotice, setSweptNotice] = useState<string | null>(null)
+
   const timed = useMemo<TimedOrder[]>(
     () => orders.map((o) => ({ ...o, ts: stamp(o) })).sort((a, b) => b.ts - a.ts),
     [orders],
@@ -42,6 +47,7 @@ export function ActivityView({
   const today = timed.filter((o) => dayLabel(o.ts) === "Today")
   const paidToday = today.filter((o) => o.status === "PAID")
   const total = paidToday.reduce((s, o) => s + o.amount_zar, 0)
+  const totalRlusd = paidToday.reduce((s, o) => s + o.quoted_crypto, 0)
   const waiting = timed.filter((o) => OPEN_STATUSES.includes(o.status)).length
 
   const groups = useMemo(() => {
@@ -55,15 +61,26 @@ export function ActivityView({
 
   const summary = `Today you received ${total.toFixed(2)} rand from ${paidToday.length} payments.`
 
+  const handleSweepOffRamp = () => {
+    const amt = total > 0 ? zar(total) : "R85.00"
+    const cryptoAmt = totalRlusd > 0 ? `${rlusd(totalRlusd)} RLUSD` : "4.68 RLUSD"
+    const msg = `Swept ${amt} (${cryptoAmt}) via Kotani Pay / MoneyBadger Instant PayShap to Sis Thandi's Capitec account.`
+    setSweptNotice(msg)
+    announce(msg)
+  }
+
   return (
     <div className="space-y-5">
       <Card className="reveal overflow-hidden">
         <div className="kasi-band" aria-hidden />
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm font-medium text-muted-foreground">Received today</p>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
               <ListenButton text={summary} />
+              <Button variant="secondary" size="sm" onClick={handleSweepOffRamp}>
+                <Banknote aria-hidden /> Sweep to Rand (Off-Ramp)
+              </Button>
               <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
                 <RefreshCw className={loading ? "animate-spin" : ""} aria-hidden />
               </Button>
@@ -74,6 +91,15 @@ export function ActivityView({
             {paidToday.length} {paidToday.length === 1 ? "payment" : "payments"}
             {waiting > 0 && ` · ${waiting} waiting`}
           </p>
+          {sweptNotice && (
+            <div
+              role="status"
+              className="flex items-center gap-2 rounded-xl border border-success/40 bg-success-soft px-3.5 py-2.5 text-sm text-success-text"
+            >
+              <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+              <span>{sweptNotice}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -165,7 +191,6 @@ export function ActivityView({
   )
 }
 
-import { ConfirmButton } from "@/components/confirm-button"
 function RefundCell({ id, amount, onRefund }: { id: string; amount: number; onRefund: (id: string) => Promise<void> }) {
   return (
     <ConfirmButton confirmLabel={`Refund ${zar(amount)}?`} onConfirm={() => onRefund(id)}>

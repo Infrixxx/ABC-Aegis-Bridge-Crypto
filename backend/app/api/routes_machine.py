@@ -270,6 +270,10 @@ def machine_pay(device_id: str, request: MachinePayRequest):
     if status == "BUDGET_EXCEEDED":
         raise HTTPException(
             status_code=402,
+            headers={
+                "WWW-Authenticate": f'Payment realm="AegisBridge", network="xrpl:testnet", channel="{request.channel_id}"',
+                "PAYMENT-REQUIRED": f'scheme="x402-xrpl", currency="RLUSD", channel="{request.channel_id}"',
+            },
             detail={
                 "error": "BUDGET_EXCEEDED",
                 "message": result.get("error"),
@@ -311,3 +315,4 @@ def revoke_device(device_id: str):
         "device_id": device_id,
         "message": "Device API key revoked. All future payments will be blocked.",
     }
+

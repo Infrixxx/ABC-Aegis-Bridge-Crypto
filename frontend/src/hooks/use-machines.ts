@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+﻿import { useCallback, useEffect, useState } from "react"
 import { api } from "@/lib/api"
 import { errorMessage } from "@/lib/utils"
 import type { DeviceInfo, RegisterDeviceBody } from "@/lib/types"
@@ -19,10 +19,6 @@ function loadIds(): string[] {
   }
 }
 
-/**
- * The backend can look a device up by id but cannot list them, so the browser
- * remembers which machines this operator has added.
- */
 export function useMachines() {
   const [ids, setIds] = useState<string[]>(loadIds)
   const [entries, setEntries] = useState<Record<string, MachineEntry>>({})
@@ -47,8 +43,19 @@ export function useMachines() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    await Promise.all(ids.map(load))
-    setLoading(false)
+    try {
+      const serverDevices = await api.listDevices()
+      const serverIds = serverDevices.map((d) => d.device_id)
+      const mergedIds = Array.from(new Set([...serverIds, ...ids]))
+      if (mergedIds.length !== ids.length) {
+        setIds(mergedIds)
+      }
+      await Promise.all(mergedIds.map(load))
+    } catch {
+      await Promise.all(ids.map(load))
+    } finally {
+      setLoading(false)
+    }
   }, [ids, load])
 
   useEffect(() => {

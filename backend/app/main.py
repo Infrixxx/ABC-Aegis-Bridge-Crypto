@@ -17,7 +17,7 @@ import sqlite3
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import routes_checkout, routes_ussd, routes_machine, routes_voice
+from app.api import routes_checkout, routes_ussd, routes_machine, routes_voice, routes_auth
 from app.core.config import settings
 
 # ── Structured Logging Setup ──────────────────────────────────────────────────
@@ -51,6 +51,7 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
+app.include_router(routes_auth.router,     prefix="/api/auth",      tags=["User Authentication & Personas"])
 app.include_router(routes_checkout.router, prefix="/api/checkout",  tags=["Checkout & Orders"])
 app.include_router(routes_ussd.router,     prefix="/api/ussd",      tags=["USSD Webhook"])
 app.include_router(routes_machine.router,  prefix="/api/machine",   tags=["HTTP 402 Machine API"])
