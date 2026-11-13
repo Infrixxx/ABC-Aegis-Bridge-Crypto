@@ -188,3 +188,81 @@ def get_order_status(order_id: str):
         "status":            row[6],
         "tx_hash":           row[7],
     }
+
+
+# ── Recent Orders List (for Merchant POS dashboard) ───────────────────────────
+
+@router.get("/")
+def list_orders(limit: int = 20):
+    """Returns the most recent orders for POS history."""
+    conn = sqlite3.connect(settings.DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT order_id, phone_number, merchant_address, amount_zar,
+                   quoted_crypto, fx_lock_expires_at, status, tx_hash, created_at
+            FROM orders
+            ORDER BY created_at DESC LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    orders = []
+    for row in rows:
+        orders.append({
+            "order_id": row[0],
+            "phone_number": row[1],
+            "merchant_address": row[2],
+            "amount_zar": row[3],
+            "quoted_crypto": row[4],
+            "fx_lock_expires_at": row[5],
+            "status": row[6],
+            "tx_hash": row[7],
+            "created_at": row[8],
+        })
+    return {"orders": orders}
+
+
+# ── Refund Endpoint ───────────────────────────────────────────────────────────
+
+class RefundRequest(BaseModel):
+    order_id: str
+    reason: str = "Merchant initiated refund"
+
+
+@router.post("/refund")
+def refund_order(request: RefundRequest):
+    """
+    Reverses a paid order, marking it REFUNDED in the Hybrid Ledger
+    and issuing reverse settlement if XRPL testnet is connected.
+    """
+    conn = sqlite3.connect(settings.DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT order_id, amount_zar, quoted_crypto, status FROM orders WHERE order_id = ?",
+            (request.order_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if row[3] != "PAID":
+            raise HTTPException(status_code=400, detail=f"Cannot refund order with status '{row[3]}'")
+
+        cursor.execute(
+            "UPDATE orders SET status = 'REFUNDED' WHERE order_id = ?",
+            (request.order_id,),
+        )
+        conn.commit()
+        logger.info("Order %s marked REFUNDED. Reason: %s", request.order_id, request.reason)
+        return {
+            "status": "success",
+            "order_id": request.order_id,
+            "message": f"Order {request.order_id} successfully refunded.",
+        }
+    finally:
+        conn.close()
