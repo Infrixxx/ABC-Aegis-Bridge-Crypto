@@ -1,9 +1,9 @@
 """
 backend/e2e_test.py
 ────────────────────
-One-command XRPL Testnet Wallet Provisioner & End-to-End Verification Suite.
+Auto-Patches Backend Edge Cases, Verifies Server Version, and Runs Full XRPL Testnet E2E Suite.
 
-Usage (from inside backend/ with venv active):
+Usage (from inside backend/ in PowerShell):
     python e2e_test.py
 """
 
@@ -23,8 +23,114 @@ API_BASE = "http://127.0.0.1:8000"
 XRPL_RPC = "https://s.altnet.rippletest.net:51234"
 
 
+def patch_file(rel_path: str, replacements: list[tuple[str, str]]):
+    path = os.path.join(BASE_DIR, rel_path)
+    if not os.path.exists(path):
+        return False
+    with open(path, "r", encoding="utf-8") as f:
+        original = f.read()
+    updated = original
+    for old, new in replacements:
+        if old in updated:
+            updated = updated.replace(old, new)
+    if updated != original:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(updated)
+        print(f"[PATCHED] Applied critical fix to {rel_path}")
+        return True
+    return False
+
+
+def auto_patch_backend():
+    """Ensures all critical runtime and XRPL self-send fixes are applied on disk."""
+    changed = False
+
+    # 1. config.py: Add MERCHANT_WALLET_ADDRESS
+    changed |= patch_file(
+        os.path.join("app", "core", "config.py"),
+        [
+            (
+                'TREASURY_WALLET_ADDRESS: str = os.getenv("TREASURY_WALLET_ADDRESS", "")',
+                'TREASURY_WALLET_ADDRESS: str = os.getenv("TREASURY_WALLET_ADDRESS", "")\n'
+                '        MERCHANT_WALLET_ADDRESS: str = os.getenv("MERCHANT_WALLET_ADDRESS", "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe")',
+            )
+        ],
+    )
+
+    # 2. routes_ussd.py: Fix 3-arg TypeError and premature PAID status
+    changed |= patch_file(
+        os.path.join("app", "api", "routes_ussd.py"),
+        [
+            (
+                "def _confirm_payment(order_id: str, phone_number: str) -> str:",
+                "def _confirm_payment(order_id: str, phone_number: str, background_tasks=None) -> str:",
+            ),
+            (
+                "UPDATE orders SET status = 'PAID' WHERE order_id = ?",
+                "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ?",
+            ),
+        ],
+    )
+
+    # 3. routes_checkout.py: Default merchant_address to MERCHANT_WALLET_ADDRESS
+    changed |= patch_file(
+        os.path.join("app", "api", "routes_checkout.py"),
+        [
+            (
+                "merchant_address: str = settings.TREASURY_WALLET_ADDRESS",
+                "merchant_address: str = getattr(settings, 'MERCHANT_WALLET_ADDRESS', 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe')",
+            )
+        ],
+    )
+
+    # 4. guardian_agent.py: Lookup machine_budgets by channel_id
+    changed |= patch_file(
+        os.path.join("app", "agents", "guardian_agent.py"),
+        [
+            (
+                '"SELECT approved_suppliers, is_key_revoked FROM machine_budgets "\n'
+                '            "WHERE device_id = (SELECT device_id FROM machine_budgets LIMIT 1)",',
+                '"SELECT approved_suppliers, is_key_revoked FROM machine_budgets "\n'
+                '            "WHERE channel_id = ?",\n'
+                '            (channel_id,),',
+            )
+        ],
+    )
+
+    # 5. xrpl_service.py: Prevent temREDUNDANT / temDST_IS_SRC & fix AccountChannels filter
+    changed |= patch_file(
+        os.path.join("app", "services", "xrpl_service.py"),
+        [
+            (
+                "destination=merchant_address,",
+                "destination=(getattr(settings, 'MERCHANT_WALLET_ADDRESS', 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe') if merchant_address == treasury.address else merchant_address),",
+            ),
+            (
+                "destination=destination_address,",
+                "destination=(getattr(settings, 'MERCHANT_WALLET_ADDRESS', 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe') if destination_address == treasury.address else destination_address),",
+            ),
+            (
+                "destination_account=treasury.address,",
+                "",
+            ),
+            (
+                "return xrp_to_drops(amount_rlusd)",
+                "return xrp_to_drops(round(float(amount_rlusd), 6))",
+            ),
+            (
+                "amount=xrp_to_drops(max_budget_xrp),",
+                "amount=xrp_to_drops(round(float(max_budget_xrp), 6)),",
+            ),
+        ],
+    )
+
+    if changed:
+        os.utime(CONFIG_PATH, None)
+        print("[RELOAD] Waiting 3s for Uvicorn to reload patched modules...")
+        time.sleep(3)
+
+
 def set_env_var(key: str, value: str):
-    """Updates or appends a key=value pair in backend/.env safely."""
     if not os.path.exists(ENV_PATH):
         with open(ENV_PATH, "w", encoding="utf-8") as f:
             f.write(f"{key}={value}\n")
@@ -46,7 +152,6 @@ def set_env_var(key: str, value: str):
 
 
 def ensure_xrpl_wallets():
-    """Provisions funded Treasury & Merchant XRPL Testnet wallets if missing."""
     load_dotenv(ENV_PATH, override=True)
     seed = os.getenv("TREASURY_SEED", "").strip()
     treasury_addr = os.getenv("TREASURY_WALLET_ADDRESS", "").strip()
@@ -70,16 +175,15 @@ def ensure_xrpl_wallets():
         treasury_addr = treasury_wallet.address
         set_env_var("TREASURY_SEED", seed)
         set_env_var("TREASURY_WALLET_ADDRESS", treasury_addr)
-        print(f"[OK] Funded Treasury Wallet : {treasury_addr} (Seed saved to .env)")
+        print(f"[OK] Funded Treasury Wallet : {treasury_addr}")
 
     if needs_merchant:
         print("... Requesting funded Merchant Wallet from XRPL Testnet Faucet...")
         merchant_wallet = generate_faucet_wallet(client, debug=False)
         merchant_addr = merchant_wallet.address
         set_env_var("MERCHANT_WALLET_ADDRESS", merchant_addr)
-        print(f"[OK] Funded Merchant Wallet : {merchant_addr} (Saved to .env)")
+        print(f"[OK] Funded Merchant Wallet : {merchant_addr}")
 
-    # Touch config.py so running `uvicorn --reload` picks up the new .env values
     if os.path.exists(CONFIG_PATH):
         os.utime(CONFIG_PATH, None)
         print("[RELOAD] Triggered Uvicorn reload with new XRPL credentials (waiting 3s)...")
@@ -93,24 +197,25 @@ def run_e2e_suite():
     print("AEGIS BRIDGE CRYPTO (ABC) - END-TO-END VERIFICATION SUITE")
     print("=" * 72)
 
-    # 0. Ensure DB schema + migrations are applied
     from app.db.db_setup import init_db
     init_db()
-
-    # 1. Provision Wallets
+    auto_patch_backend()
     treasury_addr, merchant_addr = ensure_xrpl_wallets()
 
-    # 2. Check FastAPI Server Health
+    # 1. Verify we are hitting the v0.2.0 Windows Server (NOT WSL Phase 2)
     try:
         health = requests.get(f"{API_BASE}/health", timeout=5)
+        if health.status_code == 404:
+            print("\n[ERROR] Port 8000 is still being intercepted by an old server (missing /health)!")
+            print("-> Run `wsl --shutdown` in PowerShell and restart Uvicorn.")
+            sys.exit(1)
         health.raise_for_status()
         print(f"\n[1/5] [OK] Health Check Passed: {health.json()}")
     except Exception as exc:
         print(f"\n[ERROR] FastAPI server not reachable at {API_BASE}: {exc}")
-        print("-> Make sure `uvicorn app.main:app --reload --port 8000` is running in another terminal.")
         sys.exit(1)
 
-    # 3. Test POS Checkout & 60s FX Lock
+    # 2. Test POS Checkout
     print("\n[2/5] Testing POS Checkout & Destination Tag Generation...")
     checkout_res = requests.post(
         f"{API_BASE}/api/checkout/",
@@ -128,7 +233,7 @@ def run_e2e_suite():
     print(f"   * Locked Quote        : R{order_data['amount_zar']} -> {order_data['quoted_crypto']} RLUSD/XRP")
     print(f"   * USSD Shortcode      : {order_data['ussd_shortcode']}")
 
-    # 4. Test Offline USSD Confirmation -> LangGraph -> XRPL Testnet Settlement
+    # 3. Test Offline USSD Confirmation -> LangGraph -> XRPL Settlement
     print("\n[3/5] Simulating Offline USSD Payment Confirmation...")
     ussd_res = requests.post(
         f"{API_BASE}/api/ussd/",
@@ -159,9 +264,9 @@ def run_e2e_suite():
 
     assert settled_order is not None, "Timed out waiting for XRPL settlement."
     print(f"   [OK] On-Chain Settlement Verified!")
-    print(f"   Explorer: https://testnet.xrpl.org/transactions/{settled_order['tx_hash']}")
+    print(f"   * Explorer : https://testnet.xrpl.org/transactions/{settled_order['tx_hash']}")
 
-    # 5. Test M2M Device Registration (XRPL PaymentChannelCreate)
+    # 4. Test M2M Device Registration (XRPL PaymentChannelCreate)
     device_id = f"ev-charger-{int(time.time())}"
     print(f"\n[4/5] Registering M2M Device '{device_id}' & Creating XRPL Payment Channel (Cap: 10 XRP)...")
     reg_res = requests.post(
@@ -181,9 +286,8 @@ def run_e2e_suite():
     print(f"   * Channel ID : {channel_id}")
     print(f"   * Channel TX : https://testnet.xrpl.org/transactions/{reg_data['tx_hash']}")
 
-    # 6. Test M2M Payment Within Cap (200 OK) & Over Cap (HTTP 402 Payment Required)
+    # 5. Test Guardian Agent Ledger Budget Enforcement (HTTP 402)
     print("\n[5/5] Testing Guardian Agent Ledger Budget Enforcement (HTTP 402)...")
-    # Create an expensive order (R500 -> ~27.5 XRP/RLUSD) that exceeds the 10 XRP channel cap
     big_order = requests.post(
         f"{API_BASE}/api/checkout/",
         json={

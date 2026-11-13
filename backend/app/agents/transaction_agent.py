@@ -1,4 +1,4 @@
-"""
+﻿"""
 app/agents/transaction_agent.py
 ─────────────────────────────────
 Transaction Agent — final node in the LangGraph pipeline.

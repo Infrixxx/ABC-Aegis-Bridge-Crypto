@@ -1,4 +1,4 @@
-"""
+﻿"""
 app/agents/guardian_agent.py
 ──────────────────────────────
 Guardian Agent — second node in the LangGraph pipeline.
@@ -12,6 +12,19 @@ from app.agents.state import ABCState
 from app.core.config import settings
 
 logger = logging.getLogger("abc.agents.guardian")
+
+
+def _update_order_status(order_id: str, new_status: str) -> None:
+    conn = sqlite3.connect(settings.DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE orders SET status = ? WHERE order_id = ?",
+            (new_status, order_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def guardian_node(state: ABCState) -> ABCState:
@@ -40,12 +53,9 @@ def guardian_node(state: ABCState) -> ABCState:
     try:
         channel_info = xrpl_service.get_channel_balance(channel_id)
         remaining_xrp = channel_info["remaining_xrp"]
-        logger.info(
-            "[Guardian] Channel %s has %.4f XRP remaining, need %.4f",
-            channel_id, remaining_xrp, amount_usdc,
-        )
     except Exception as exc:
         logger.error("[Guardian] Failed to fetch channel balance: %s", exc)
+        _update_order_status(order_id, "BUDGET_EXCEEDED")
         return {
             **state,
             "channel_balance_xrp": 0.0,
@@ -54,28 +64,11 @@ def guardian_node(state: ABCState) -> ABCState:
             "error": f"Could not verify Payment Channel balance: {exc}",
         }
 
-    if amount_usdc > remaining_xrp:
-        logger.warning(
-            "[Guardian] BUDGET EXCEEDED: order=%s need=%.4f remaining=%.4f",
-            order_id, amount_usdc, remaining_xrp,
-        )
-        return {
-            **state,
-            "channel_balance_xrp": remaining_xrp,
-            "budget_ok": False,
-            "status": "BUDGET_EXCEEDED",
-            "error": (
-                f"Spend of {amount_usdc} RLUSD exceeds Payment Channel "
-                f"balance of {remaining_xrp:.4f} XRP. "
-                "Operator must top up the channel."
-            ),
-        }
-
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT approved_suppliers, is_key_revoked FROM machine_budgets "
+            "SELECT approved_suppliers, is_key_revoked, current_spent FROM machine_budgets "
             "WHERE channel_id = ?",
             (channel_id,),
         )
@@ -86,22 +79,24 @@ def guardian_node(state: ABCState) -> ABCState:
     if budget_row:
         approved_suppliers = json.loads(budget_row[0] or "[]")
         is_revoked = bool(budget_row[1])
+        db_spent = float(budget_row[2] or 0.0)
+        effective_remaining = max(0.0, remaining_xrp - db_spent)
 
         if is_revoked:
             logger.warning("[Guardian] Device key is REVOKED for order=%s", order_id)
+            _update_order_status(order_id, "REJECTED")
             return {
                 **state,
-                "channel_balance_xrp": remaining_xrp,
+                "channel_balance_xrp": effective_remaining,
                 "budget_ok": False,
                 "status": "REJECTED",
-                "error": "Device API key has been revoked by operator.",
+                "error": "Device API key has been revoked by operator (Kill-Switch active).",
             }
 
         allowed_defaults = {
-            settings.MERCHANT_WALLET_ADDRESS,
-            settings.TREASURY_WALLET_ADDRESS,
-            "rTreasuryWalletPlaceholder",
-            "rMerchantStoreAddress1",
+            getattr(settings, "MERCHANT_WALLET_ADDRESS", ""),
+            getattr(settings, "TREASURY_WALLET_ADDRESS", ""),
+            "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
         }
         if (
             approved_suppliers
@@ -112,18 +107,39 @@ def guardian_node(state: ABCState) -> ABCState:
                 "[Guardian] Merchant %s not in approved_suppliers for order=%s",
                 merchant_address, order_id,
             )
+            _update_order_status(order_id, "REJECTED")
             return {
                 **state,
-                "channel_balance_xrp": remaining_xrp,
+                "channel_balance_xrp": effective_remaining,
                 "budget_ok": False,
                 "status": "REJECTED",
-                "error": f"Merchant {merchant_address} is not an approved supplier.",
+                "error": f"Supplier {merchant_address} is not in operator's approved mandate allowlist.",
             }
+    else:
+        effective_remaining = remaining_xrp
 
-    logger.info("[Guardian] ✅ Order %s approved, channel has %.4f XRP", order_id, remaining_xrp)
+    if amount_usdc > effective_remaining:
+        logger.warning(
+            "[Guardian] BUDGET EXCEEDED: order=%s need=%.4f remaining=%.4f",
+            order_id, amount_usdc, effective_remaining,
+        )
+        _update_order_status(order_id, "BUDGET_EXCEEDED")
+        return {
+            **state,
+            "channel_balance_xrp": effective_remaining,
+            "budget_ok": False,
+            "status": "BUDGET_EXCEEDED",
+            "error": (
+                f"Spend of {amount_usdc} RLUSD exceeds Payment Channel "
+                f"balance of {effective_remaining:.4f} XRP. "
+                "Operator must top up the channel."
+            ),
+        }
+
+    logger.info("[Guardian] ✅ Order %s approved, channel has %.4f XRP", order_id, effective_remaining)
     return {
         **state,
-        "channel_balance_xrp": remaining_xrp,
+        "channel_balance_xrp": effective_remaining,
         "budget_ok": True,
     }
 

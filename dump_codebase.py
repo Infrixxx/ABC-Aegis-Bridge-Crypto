@@ -2,24 +2,23 @@
 dump_codebase.py
 ────────────────
 Dumps all source code and directory structure into codebase_dump.txt.
-Works in any terminal (CMD, PowerShell, Bash) by running:
-    python dump_codebase.py
 """
 
 import os
 
 OUTPUT_FILE = "codebase_dump.txt"
 EXCLUDE_DIRS = {".git", "node_modules", "dist", "__pycache__", "venv", ".venv", ".idea", ".vscode"}
-EXCLUDE_FILES = {"package-lock.json", "abc_state.db", OUTPUT_FILE}
+EXCLUDE_FILES = {"package-lock.json", "abc_state.db", ".env", OUTPUT_FILE}
+EXCLUDE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".pdf", ".zip", ".exe", ".pyc", ".db", ".sqlite"}
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 
 collected_files = []
 for dirpath, dirnames, filenames in os.walk(root_dir):
-    # Filter out excluded directories in-place
     dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
     for f in filenames:
-        if f not in EXCLUDE_FILES and not f.endswith(".pyc"):
+        ext = os.path.splitext(f)[1].lower()
+        if f not in EXCLUDE_FILES and ext not in EXCLUDE_EXTS and not f.endswith(".env"):
             collected_files.append(os.path.join(dirpath, f))
 
 with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
