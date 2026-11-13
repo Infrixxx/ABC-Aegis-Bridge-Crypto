@@ -64,10 +64,22 @@ def transaction_node(state: ABCState) -> ABCState:
             )
             conn.commit()
             logger.info(
-                "[Transaction] ✅ PAID order=%s tx_hash=%s", order_id, tx_hash
+                "[Transaction] [PAID] order=%s tx_hash=%s", order_id, tx_hash
             )
         finally:
             conn.close()
+
+        # ── Dispatch SMS receipt to payer ────────────────────────────────────
+        phone_number = state.get("phone_number")
+        if phone_number:
+            try:
+                from app.services.africas_talking_service import send_sms
+                send_sms(
+                    to_phone=phone_number,
+                    message=f"Aegis Bridge: Order {order_id} settled on-chain! {amount_usdc:.2f} RLUSD. Tx: {tx_hash[:12]}...",
+                )
+            except Exception as sms_err:
+                logger.warning("[Transaction] SMS notification skipped: %s", sms_err)
 
         return {
             **state,
