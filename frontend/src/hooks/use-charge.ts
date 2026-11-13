@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import { errorMessage } from "@/lib/utils"
 import { spellDigits } from "@/lib/format"
-import type { CheckoutResponse, OrderStatus } from "@/lib/types"
+import type { AgentTraceStep, CheckoutResponse, OrderStatus } from "@/lib/types"
 import { useSpeech } from "./use-speech"
 
 const POLL_MS = 1500
@@ -13,6 +13,7 @@ export interface ChargeState {
   order: CheckoutResponse
   serverStatus: OrderStatus
   txHash: string | null
+  agentTrace?: AgentTraceStep[] | null
   /** Local deadline: receive time + fx_lock_seconds. Immune to a wrong device clock or server timezone. */
   lockEndsAt: number
   expired: boolean
@@ -53,8 +54,8 @@ export function useCharge(onChanged: () => void) {
         const o = await api.getOrder(orderId)
         if (cancelled) return
         setCharge((prev) =>
-          prev && prev.order.order_id === orderId && (prev.serverStatus !== o.status || prev.txHash !== o.tx_hash)
-            ? { ...prev, serverStatus: o.status, txHash: o.tx_hash }
+          prev && prev.order.order_id === orderId && (prev.serverStatus !== o.status || prev.txHash !== o.tx_hash || prev.agentTrace !== o.agent_trace)
+            ? { ...prev, serverStatus: o.status, txHash: o.tx_hash, agentTrace: o.agent_trace }
             : prev,
         )
       } catch {

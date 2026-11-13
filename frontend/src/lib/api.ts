@@ -12,8 +12,7 @@
 } from "./types"
 
 export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ??
-  "http://localhost:8000"
+  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ?? ""
 
 export const EXPLORER_TX = "https://testnet.xrpl.org/transactions"
 
@@ -106,6 +105,33 @@ export const api = {
   refund: (orderId: string, reason = "Merchant POS refund") =>
     request<{ status: string; message: string }>("/api/checkout/refund", json({ order_id: orderId, reason })),
 
+  dialUssdSession: async (text: string, phone = "+27821234567", sessionId = "live-phone-session") => {
+    const body = new URLSearchParams({
+      sessionId,
+      serviceCode: "*123#",
+      phoneNumber: phone,
+      text,
+    })
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}/api/ussd/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      })
+    } catch {
+      throw new ApiError("Can't reach the payment server. Check your connection.", 0)
+    }
+    if (!res.ok) throw new ApiError(`USSD request failed (${res.status})`, res.status)
+    return res.text()
+  },
+
+  getRecentTraces: () =>
+    request<{
+      traces: { order_id: string; steps: { agent: string; status: string; latency_ms: number; detail: string; timestamp: string }[] }[]
+      threat_cache: { wallet_address: string; flag_reason: string }[]
+    }>("/api/checkout/traces/recent"),
+
   simulateUssdConfirm: async (orderId: string, phone: string) => {
     const body = new URLSearchParams({
       sessionId: `demo-${orderId}`,
@@ -153,3 +179,4 @@ export const api = {
       json({ order_id: orderId, channel_id: channelId }),
     ),
 }
+

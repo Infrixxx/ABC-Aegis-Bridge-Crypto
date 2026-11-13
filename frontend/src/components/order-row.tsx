@@ -3,6 +3,7 @@ import { ChevronDown, ExternalLink } from "lucide-react"
 import { ConfirmButton } from "@/components/confirm-button"
 import { CopyButton } from "@/components/copy-button"
 import { StatusPill } from "@/components/status-pill"
+import { AgentTraceView } from "@/components/agent-trace-view"
 import { EXPLORER_TX } from "@/lib/api"
 import { formatPhone, rlusd, shortHash, zar } from "@/lib/format"
 import { statusMeta, timeOfDay, type Tone } from "@/lib/status"
@@ -78,6 +79,10 @@ export function OrderRow({
               )}
             </dd>
           </dl>
+
+          {/* LangGraph Multi-Agent Execution Telemetry */}
+          <AgentTraceView steps={order.agent_trace} orderId={order.order_id} />
+
           {order.status === "PAID" && (
             <ConfirmButton confirmLabel={`Yes, refund ${zar(order.amount_zar)}`} onConfirm={() => onRefund(order.order_id)}>
               Refund

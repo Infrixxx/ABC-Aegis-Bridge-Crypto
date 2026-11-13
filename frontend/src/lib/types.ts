@@ -1,4 +1,4 @@
-export type OrderStatus =
+﻿export type OrderStatus =
   | "PENDING"
   | "PROCESSING"
   | "PAID"
@@ -21,6 +21,8 @@ export interface CheckoutResponse {
   fx_lock_seconds: number
   qr_payload: string
   ussd_shortcode: string
+  lan_ip?: string
+  web_pay_url?: string
 }
 
 export interface Order {
@@ -33,6 +35,7 @@ export interface Order {
   status: OrderStatus
   tx_hash: string | null
   created_at?: string
+  agent_trace?: AgentTraceStep[]
 }
 
 export interface DeviceInfo {
@@ -104,3 +107,11 @@ export const FAILED_STATUSES: OrderStatus[] = [
   "UNDERPAID",
   "BUDGET_EXCEEDED",
 ]
+
+export interface AgentTraceStep {
+  agent: string
+  status: string
+  latency_ms: number
+  detail: string
+  timestamp: string
+}

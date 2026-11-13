@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react"
+﻿import { useEffect, type ReactNode } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Ban, Loader2, QrCode, Smartphone, Sparkles, Timer, Undo2, XCircle, type LucideIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -9,6 +9,7 @@ import { CopyButton } from "@/components/copy-button"
 import { ListenButton } from "@/components/listen-button"
 import { Notice } from "@/components/notice"
 import { RingTimer } from "@/components/ring-timer"
+import { AgentTraceView } from "@/components/agent-trace-view"
 import { TONE_CHIP } from "@/components/order-row"
 import { EXPLORER_TX } from "@/lib/api"
 import { formatPhone, rlusd, shortHash, spellDigits, zar } from "@/lib/format"
@@ -100,11 +101,11 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-background/50 p-4">
               <div className="rounded-xl bg-white p-3">
-                <QRCodeSVG value={order.qr_payload} size={156} level="M" bgColor="#ffffff" fgColor="#111111" />
+                <QRCodeSVG value={order.web_pay_url || `${window.location.origin}/?pay=${order.order_id}`} size={156} level="M" bgColor="#ffffff" fgColor="#111111" />
               </div>
               <p className="text-center text-sm text-muted-foreground">
                 <QrCode className="mr-1 inline size-4 align-[-0.15em]" aria-hidden />
-                Scan with a phone
+                Scan with phone camera (opens live checkout)
               </p>
             </div>
             <div className="flex flex-col justify-center gap-2 rounded-2xl border border-border bg-background/50 p-4">
@@ -160,7 +161,7 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
         <CardContent className="flex flex-col items-center gap-6 py-14 text-center">
           <Loader2 className="size-12 animate-spin text-muted-foreground" aria-hidden />
           <div>
-            <h2 className="font-display text-3xl font-semibold">Confirming payment…</h2>
+            <h2 className="font-display text-3xl font-semibold">Confirming paymentâ€¦</h2>
             <p className="mt-2 text-muted-foreground">This usually takes a few seconds.</p>
           </div>
           <Amount value={order.amount_zar} sub={sub} />
@@ -211,6 +212,14 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
               {detail && <span className="text-muted-foreground">· tag {order.destination_tag}</span>}
             </p>
           )}
+
+          {/* LangGraph Multi-Agent Telemetry */}
+          <AgentTraceView
+            steps={charge.agentTrace}
+            orderId={order.order_id}
+            className="w-full text-left"
+          />
+
           <div className="flex w-full max-w-xs flex-col items-stretch gap-2">
             <Button size="lg" onClick={ctl.reset}>
               Next customer
@@ -274,3 +283,4 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
     </Outcome>
   )
 }
+

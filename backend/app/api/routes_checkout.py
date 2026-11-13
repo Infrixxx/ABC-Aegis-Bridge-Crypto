@@ -1,9 +1,10 @@
-"""
+﻿"""
 app/api/routes_checkout.py
 ───────────────────────────
 POST /api/checkout/
 """
 
+import socket
 import sqlite3
 import requests
 import logging
@@ -12,9 +13,23 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.agents.supervisor import get_order_trace, RECENT_TRACES
 
 logger = logging.getLogger("abc.checkout")
 router = APIRouter()
+
+
+def get_lan_ip() -> str:
+    """Detects the laptop's Wi-Fi LAN IP so a phone scanning the QR code can connect."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.2)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 class CheckoutRequest(BaseModel):
@@ -101,6 +116,7 @@ def create_checkout(request: CheckoutRequest):
     finally:
         conn.close()
 
+    lan_ip = get_lan_ip()
     return {
         "status": "success",
         "order_id": order_id,
@@ -111,12 +127,33 @@ def create_checkout(request: CheckoutRequest):
         "merchant_address": merchant_addr,
         "expires_at": expiry_time.isoformat(),
         "fx_lock_seconds": settings.FX_LOCK_SECONDS,
+        "lan_ip": lan_ip,
+        "web_pay_url": f"http://{lan_ip}:5173/?pay={order_id}",
         "qr_payload": (
             f"xrpl://pay?to={merchant_addr}"
             f"&amount={quoted_crypto}&dt={destination_tag}"
         ),
         "ussd_shortcode": f"*123*{destination_tag}#",
     }
+
+
+@router.get("/traces/recent")
+def list_recent_traces():
+    """Returns the most recent LangGraph Multi-Agent execution traces for the UI inspector."""
+    conn = sqlite3.connect(settings.DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT wallet_address, flag_reason FROM flagged_addresses")
+        threats = [{"wallet_address": r[0], "flag_reason": r[1]} for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+    items = [
+        {"order_id": oid, "steps": steps}
+        for oid, steps in list(RECENT_TRACES.items())[-15:]
+    ]
+    items.reverse()
+    return {"traces": items, "threat_cache": threats}
 
 
 @router.get("/{order_id}")
@@ -148,6 +185,7 @@ def get_order_status(order_id: str):
         "fx_lock_expires_at": row[5],
         "status":             row[6],
         "tx_hash":            row[7],
+        "agent_trace":        get_order_trace(row[0]),
     }
 
 
@@ -181,6 +219,7 @@ def list_orders(limit: int = 20):
             "status": row[6],
             "tx_hash": row[7],
             "created_at": row[8],
+            "agent_trace": get_order_trace(row[0]),
         })
     return {"orders": orders}
 

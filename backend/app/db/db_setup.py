@@ -135,6 +135,7 @@ def _run_migrations(cursor):
     migrations = [
         ("orders",          "merchant_address",   "TEXT"),
         ("orders",          "tx_hash",            "TEXT"),
+        ("orders",          "agent_trace",        "TEXT DEFAULT '[]'"),
         ("machine_budgets", "channel_id",         "TEXT"),
         ("machine_budgets", "approved_suppliers", "TEXT DEFAULT '[]'"),
         ("machine_budgets", "is_key_revoked",     "INTEGER DEFAULT 0"),
