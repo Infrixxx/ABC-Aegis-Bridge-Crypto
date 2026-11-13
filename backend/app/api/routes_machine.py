@@ -1,17 +1,20 @@
-﻿"""
+"""
 app/api/routes_machine.py
 ──────────────────────────
 HTTP 402 Machine-to-Machine (M2M) Payment API.
+Operator routes (/register, /budget, /revoke) require Bearer authentication.
+Device payment route (/pay) is open for autonomous M2M execution.
 """
 
 import json
 import sqlite3
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List
 
 from app.core.config import settings
+from app.api.routes_auth import get_current_user, UserPublic
 from app.services import xrpl_service
 
 logger = logging.getLogger("abc.machine")
@@ -36,7 +39,6 @@ class MachinePayRequest(BaseModel):
 
 @router.get("/")
 def list_devices():
-    """Returns all registered M2M devices from the Hybrid Ledger."""
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -70,7 +72,10 @@ def list_devices():
 
 
 @router.post("/register")
-def register_device(request: RegisterDeviceRequest):
+def register_device(
+    request: RegisterDeviceRequest,
+    current_user: UserPublic = Depends(get_current_user),
+):
     if not settings.TREASURY_SEED:
         raise HTTPException(
             status_code=503,
@@ -119,8 +124,8 @@ def register_device(request: RegisterDeviceRequest):
             conn.close()
 
         logger.info(
-            "Device registered: id=%s channel=%s budget=%.4f XRP",
-            request.device_id, channel_id, request.max_budget_xrp,
+            "Device registered by %s: id=%s channel=%s budget=%.4f XRP",
+            current_user.email, request.device_id, channel_id, request.max_budget_xrp,
         )
 
         return {
@@ -130,10 +135,7 @@ def register_device(request: RegisterDeviceRequest):
             "max_budget_xrp": request.max_budget_xrp,
             "tx_hash": channel_result["tx_hash"],
             "approved_suppliers": suppliers,
-            "note": (
-                "Payment Channel is live on XRPL Testnet. "
-                "The agent can only spend up to the funded amount."
-            ),
+            "note": "Payment Channel is live on XRPL Testnet.",
         }
 
     except Exception as exc:
@@ -159,26 +161,25 @@ def get_device_budget(device_id: str):
         conn.close()
 
     if not row:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Device '{device_id}' not registered.",
-        )
+        raise HTTPException(status_code=404, detail=f"Device '{device_id}' not registered.")
 
     (
         db_device_id, operator_phone, channel_id, max_budget_cap,
         current_spent, approved_suppliers_json, is_key_revoked,
     ) = row
 
+    cap = float(max_budget_cap or 0.0)
+    spent = float(current_spent or 0.0)
     ledger_balance = None
+
     if channel_id and settings.TREASURY_SEED:
         try:
             channel_info = xrpl_service.get_channel_balance(channel_id)
-            ledger_balance = channel_info.get("remaining_xrp")
+            ledger_balance = float(channel_info.get("remaining_xrp", max(0.0, cap - spent)))
+            spent = float(channel_info.get("spent_xrp", spent))
+            cap = float(channel_info.get("amount_xrp", cap))
         except Exception as e:
             logger.warning("Could not fetch live XRPL channel balance: %s", e)
-
-    cap = float(max_budget_cap or 0.0)
-    spent = float(current_spent or 0.0)
 
     return {
         "device_id": db_device_id,
@@ -186,7 +187,7 @@ def get_device_budget(device_id: str):
         "channel_id": channel_id,
         "max_budget_cap_xrp": cap,
         "current_spent_xrp": spent,
-        "remaining_xrp": max(0.0, cap - spent),
+        "remaining_xrp": ledger_balance if ledger_balance is not None else max(0.0, cap - spent),
         "ledger_channel_remaining_xrp": ledger_balance,
         "approved_suppliers": json.loads(approved_suppliers_json or "[]"),
         "is_key_revoked": bool(is_key_revoked),
@@ -194,7 +195,11 @@ def get_device_budget(device_id: str):
 
 
 @router.post("/{device_id}/budget")
-def top_up_budget(device_id: str, request: TopUpBudgetRequest):
+def top_up_budget(
+    device_id: str,
+    request: TopUpBudgetRequest,
+    current_user: UserPublic = Depends(get_current_user),
+):
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -242,10 +247,7 @@ def top_up_budget(device_id: str, request: TopUpBudgetRequest):
 def machine_pay(device_id: str, request: MachinePayRequest):
     from app.agents.supervisor import run_payment_pipeline
 
-    logger.info(
-        "M2M payment: device=%s order=%s channel=%s",
-        device_id, request.order_id, request.channel_id,
-    )
+    logger.info("M2M payment: device=%s order=%s channel=%s", device_id, request.order_id, request.channel_id)
 
     try:
         result = run_payment_pipeline(
@@ -272,7 +274,7 @@ def machine_pay(device_id: str, request: MachinePayRequest):
             status_code=402,
             headers={
                 "WWW-Authenticate": f'Payment realm="AegisBridge", network="xrpl:testnet", channel="{request.channel_id}"',
-                "PAYMENT-REQUIRED": f'scheme="x402-xrpl", currency="RLUSD", channel="{request.channel_id}"',
+                "PAYMENT-REQUIRED": f'scheme="x402-xrpl", currency="XRP", channel="{request.channel_id}"',
             },
             detail={
                 "error": "BUDGET_EXCEEDED",
@@ -292,7 +294,10 @@ def machine_pay(device_id: str, request: MachinePayRequest):
 
 
 @router.post("/{device_id}/revoke")
-def revoke_device(device_id: str):
+def revoke_device(
+    device_id: str,
+    current_user: UserPublic = Depends(get_current_user),
+):
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -301,18 +306,14 @@ def revoke_device(device_id: str):
             (device_id,),
         )
         if cursor.rowcount == 0:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Device '{device_id}' not found.",
-            )
+            raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found.")
         conn.commit()
     finally:
         conn.close()
 
-    logger.warning("Device REVOKED by operator: device=%s", device_id)
+    logger.warning("Device REVOKED by operator %s: device=%s", current_user.email, device_id)
     return {
         "status": "revoked",
         "device_id": device_id,
         "message": "Device API key revoked. All future payments will be blocked.",
     }
-

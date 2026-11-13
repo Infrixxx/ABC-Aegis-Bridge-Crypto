@@ -1,6 +1,6 @@
 """
 app/api/routes_ussd.py
-───────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 POST /api/ussd/
 
 Africa's Talking USSD webhook handler.
@@ -98,7 +98,7 @@ def _lookup_order(order_id: str) -> str:
         )
 
     return (
-        f"CON Pay R{amount_zar:.2f} ({quoted_crypto:.4f} RLUSD)?\n"
+        f"CON Pay R{amount_zar:.2f} ({quoted_crypto:.4f} {settings.active_currency})?\n"
         "1. Confirm & Sign Transaction"
     )
 
@@ -147,7 +147,7 @@ def _confirm_payment(
 
         conn.commit()
         logger.info(
-            "Order %s atomically locked to PROCESSING by %s — dispatching to LangGraph pipeline",
+            "Order %s atomically locked to PROCESSING by %s â€” dispatching to LangGraph pipeline",
             order_id, phone_number,
         )
 
@@ -172,6 +172,6 @@ def _confirm_payment(
 
     return (
         "END Payment Confirmed!\n"
-        "Your RLUSD is being settled on-chain.\n"
+        "Your payment is being settled on the XRP Ledger.\n"
         "Check your merchant screen for the confirmation."
     )

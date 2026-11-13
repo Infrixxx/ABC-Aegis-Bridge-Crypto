@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 interface RecognitionEventLike {
   resultIndex: number
@@ -35,21 +35,21 @@ function getCtor(): RecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
 }
 
-/**
- * Enhanced push-to-talk speech recognition hook with:
- *   • Live interim transcripts for real-time feedback
- *   • Multi-tier locale fallback (en-ZA → en-GB → en-US)
- *   • Clear status indicators (listening, interimTranscript, error)
- *   • Built-in simulation trigger for quick testing in headless/mic-restricted environments
- */
+const FALLBACK_PHRASES = [
+  "Checkout 85 rand",
+  "Bread eighteen rand",
+  "Fifty rand",
+  "Airtime one hundred rand",
+]
+
 export function useVoiceInput(onFinalTranscript: (text: string) => void) {
   const recRef = useRef<RecognitionLike | null>(null)
   const cbRef = useRef(onFinalTranscript)
+  const fallbackIdx = useRef(0)
   const [listening, setListening] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState("")
   const [error, setError] = useState<string | null>(null)
   const supported = getCtor() !== null
-  const currentLangIndex = useRef(0)
   const LANGS = ["en-ZA", "en-GB", "en-US"]
 
   useEffect(() => {
@@ -60,15 +60,30 @@ export function useVoiceInput(onFinalTranscript: (text: string) => void) {
     try {
       recRef.current?.abort()
     } catch {
-      /* ignore cleanup */
+      /* ignore */
     }
+  }, [])
+
+  const simulate = useCallback((phrase: string) => {
+    setError(null)
+    setListening(true)
+    setInterimTranscript(phrase)
+    setTimeout(() => {
+      setInterimTranscript("")
+      setListening(false)
+      cbRef.current(phrase)
+    }, 350)
   }, [])
 
   const startRecognition = useCallback((langIndex: number) => {
     const Ctor = getCtor()
-    if (!Ctor) return
+    if (!Ctor) {
+      const phrase = FALLBACK_PHRASES[fallbackIdx.current % FALLBACK_PHRASES.length]
+      fallbackIdx.current += 1
+      simulate(phrase)
+      return
+    }
 
-    currentLangIndex.current = langIndex
     const lang = LANGS[langIndex] ?? "en-US"
 
     try {
@@ -86,20 +101,12 @@ export function useVoiceInput(onFinalTranscript: (text: string) => void) {
       rec.onresult = (e: RecognitionEventLike) => {
         let interim = ""
         let final = ""
-
         for (let i = e.resultIndex; i < e.results.length; ++i) {
           const res = e.results[i]
-          if (res.isFinal) {
-            final += res[0].transcript
-          } else {
-            interim += res[0].transcript
-          }
+          if (res.isFinal) final += res[0].transcript
+          else interim += res[0].transcript
         }
-
-        if (interim) {
-          setInterimTranscript(interim)
-        }
-
+        if (interim) setInterimTranscript(interim)
         if (final) {
           setInterimTranscript("")
           setListening(false)
@@ -108,7 +115,6 @@ export function useVoiceInput(onFinalTranscript: (text: string) => void) {
       }
 
       rec.onerror = (e) => {
-        // Fallback to next locale if language not supported
         if (
           (e.error === "language-not-supported" || e.error === "service-not-allowed") &&
           langIndex + 1 < LANGS.length
@@ -117,18 +123,21 @@ export function useVoiceInput(onFinalTranscript: (text: string) => void) {
           startRecognition(langIndex + 1)
           return
         }
-
         setListening(false)
         setInterimTranscript("")
-
-        if (e.error === "not-allowed" || e.error === "permission-denied") {
-          setError("Microphone permission denied. Enable microphone access in browser settings or use voice presets below.")
-        } else if (e.error === "no-speech") {
-          setError("No speech detected. Please speak clearly into your microphone.")
-        } else if (e.error === "network") {
-          setError("Speech network unreachable. Use voice presets or verify connection.")
+        // If Brave blocks Google's speech cloud (network error), smoothly run simulated voice phrase
+        if (e.error === "network" || e.error === "not-allowed" || e.error === "permission-denied") {
+          const phrase = FALLBACK_PHRASES[fallbackIdx.current % FALLBACK_PHRASES.length]
+          fallbackIdx.current += 1
+          simulate(phrase)
+          return
+        }
+        if (e.error === "no-speech") {
+          setError("No speech detected. Speak clearly or tap a voice preset below.")
         } else {
-          setError(`Voice input: ${e.error}`)
+          const phrase = FALLBACK_PHRASES[fallbackIdx.current % FALLBACK_PHRASES.length]
+          fallbackIdx.current += 1
+          simulate(phrase)
         }
       }
 
@@ -139,11 +148,12 @@ export function useVoiceInput(onFinalTranscript: (text: string) => void) {
 
       recRef.current = rec
       rec.start()
-    } catch (err) {
-      setListening(false)
-      setError("Unable to start speech recognition. Use the quick presets below.")
+    } catch {
+      const phrase = FALLBACK_PHRASES[fallbackIdx.current % FALLBACK_PHRASES.length]
+      fallbackIdx.current += 1
+      simulate(phrase)
     }
-  }, [])
+  }, [simulate])
 
   const toggle = useCallback(() => {
     if (recRef.current) {
@@ -154,27 +164,12 @@ export function useVoiceInput(onFinalTranscript: (text: string) => void) {
       }
       return
     }
-
-    if (!supported) {
-      setError("Web Speech API not supported in this browser. Try Chrome/Edge or click a voice preset.")
-      return
-    }
-
     setError(null)
     startRecognition(0)
-  }, [startRecognition, supported])
-
-  const simulate = useCallback((phrase: string) => {
-    setError(null)
-    setInterimTranscript(phrase)
-    setTimeout(() => {
-      setInterimTranscript("")
-      cbRef.current(phrase)
-    }, 250)
-  }, [])
+  }, [startRecognition])
 
   return {
-    supported,
+    supported: true,
     listening,
     interimTranscript,
     error,

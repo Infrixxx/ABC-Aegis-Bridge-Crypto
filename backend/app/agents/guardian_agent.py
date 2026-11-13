@@ -1,7 +1,10 @@
-﻿"""
+"""
 app/agents/guardian_agent.py
 ──────────────────────────────
 Guardian Agent — second node in the LangGraph pipeline.
+Enforces operator kill-switch and supplier allowlists, queries live XRPL
+Payment Channel state without double-counting SQLite spend, and delegates
+hard cap rejection to on-ledger `PaymentChannelClaim` when live on XRPL.
 """
 
 import json
@@ -10,6 +13,7 @@ import logging
 
 from app.agents.state import ABCState
 from app.core.config import settings
+from app.services import xrpl_service
 
 logger = logging.getLogger("abc.agents.guardian")
 
@@ -34,25 +38,17 @@ def guardian_node(state: ABCState) -> ABCState:
     merchant_address = state["merchant_address"]
 
     if not channel_id:
-        logger.info(
-            "[Guardian] Consumer payment order=%s — no channel constraint", order_id
-        )
+        logger.info("[Guardian] Consumer payment order=%s — no channel constraint", order_id)
         return {
             **state,
             "channel_balance_xrp": 0.0,
             "budget_ok": True,
         }
 
-    logger.info(
-        "[Guardian] M2M payment order=%s channel=%s amount=%.4f",
-        order_id, channel_id, amount_usdc,
-    )
-
-    from app.services import xrpl_service
-
     try:
         channel_info = xrpl_service.get_channel_balance(channel_id)
-        remaining_xrp = channel_info["remaining_xrp"]
+        # Ledger remaining_xrp already subtracts on-chain claimed balance! No double-subtraction.
+        effective_remaining = float(channel_info["remaining_xrp"])
     except Exception as exc:
         logger.error("[Guardian] Failed to fetch channel balance: %s", exc)
         _update_order_status(order_id, "BUDGET_EXCEEDED")
@@ -68,8 +64,7 @@ def guardian_node(state: ABCState) -> ABCState:
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT approved_suppliers, is_key_revoked, current_spent FROM machine_budgets "
-            "WHERE channel_id = ?",
+            "SELECT approved_suppliers, is_key_revoked FROM machine_budgets WHERE channel_id = ?",
             (channel_id,),
         )
         budget_row = cursor.fetchone()
@@ -79,8 +74,6 @@ def guardian_node(state: ABCState) -> ABCState:
     if budget_row:
         approved_suppliers = json.loads(budget_row[0] or "[]")
         is_revoked = bool(budget_row[1])
-        db_spent = float(budget_row[2] or 0.0)
-        effective_remaining = max(0.0, remaining_xrp - db_spent)
 
         if is_revoked:
             logger.warning("[Guardian] Device key is REVOKED for order=%s", order_id)
@@ -103,10 +96,7 @@ def guardian_node(state: ABCState) -> ABCState:
             and merchant_address not in approved_suppliers
             and merchant_address not in allowed_defaults
         ):
-            logger.warning(
-                "[Guardian] Merchant %s not in approved_suppliers for order=%s",
-                merchant_address, order_id,
-            )
+            logger.warning("[Guardian] Merchant %s not in approved_suppliers", merchant_address)
             _update_order_status(order_id, "REJECTED")
             return {
                 **state,
@@ -115,14 +105,11 @@ def guardian_node(state: ABCState) -> ABCState:
                 "status": "REJECTED",
                 "error": f"Supplier {merchant_address} is not in operator's approved mandate allowlist.",
             }
-    else:
-        effective_remaining = remaining_xrp
 
-    if amount_usdc > effective_remaining:
-        logger.warning(
-            "[Guardian] BUDGET EXCEEDED: order=%s need=%.4f remaining=%.4f",
-            order_id, amount_usdc, effective_remaining,
-        )
+    # If running without a live seed (simulation mode), block in software.
+    # When live on XRPL Testnet, allow the claim to hit `sign_and_claim_payment_channel`
+    # so the XRP Ledger itself enforces the cap and returns a real XRPL result code!
+    if not xrpl_service._is_real_seed_configured() and amount_usdc > effective_remaining:
         _update_order_status(order_id, "BUDGET_EXCEEDED")
         return {
             **state,
@@ -130,13 +117,15 @@ def guardian_node(state: ABCState) -> ABCState:
             "budget_ok": False,
             "status": "BUDGET_EXCEEDED",
             "error": (
-                f"Spend of {amount_usdc} RLUSD exceeds Payment Channel "
-                f"balance of {effective_remaining:.4f} XRP. "
-                "Operator must top up the channel."
+                f"Spend of {amount_usdc:.4f} XRP exceeds Payment Channel "
+                f"remaining balance of {effective_remaining:.4f} XRP."
             ),
         }
 
-    logger.info("[Guardian] ✅ Order %s approved, channel has %.4f XRP", order_id, effective_remaining)
+    logger.info(
+        "[Guardian] Mandate cleared for order=%s (channel remaining=%.4f XRP, claim=%.4f XRP)",
+        order_id, effective_remaining, amount_usdc,
+    )
     return {
         **state,
         "channel_balance_xrp": effective_remaining,
@@ -146,8 +135,5 @@ def guardian_node(state: ABCState) -> ABCState:
 
 def route_after_guardian(state: ABCState) -> str:
     if not state.get("budget_ok", False):
-        logger.info(
-            "[Guardian] Routing to END (blocked): %s", state.get("error")
-        )
         return "block"
     return "proceed"

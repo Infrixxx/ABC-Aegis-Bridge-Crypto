@@ -1,6 +1,6 @@
 """
 app/api/routes_voice.py
-────────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 POST /api/voice/
 
 Africa's Talking IVR (Interactive Voice Response) webhook.
@@ -84,7 +84,7 @@ def voice_callback(
             '<Response>\n'
             f'    <GetDigits finishOnKey="#" timeout="20" numDigits="1" callbackUrl="/api/voice/confirm?order_id={order_id}">\n'
             f'        <Say>Order {order_id} found. Total amount is {int(amount_zar)} Rand, '
-            f'quoted at {quoted_crypto:.2f} RLUSD. To authorize payment, press 1 now.</Say>\n'
+            f'quoted at {quoted_crypto:.2f} {settings.active_currency}. To authorize payment, press 1 now.</Say>\n'
             '    </GetDigits>\n'
             '    <Say>No confirmation received. Transaction cancelled. Goodbye.</Say>\n'
             '</Response>'

@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: aegis-bridge-crypto
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: FX_LOCK_SECONDS
+        value: "60"
+      - key: ALLOW_SIMULATION
+        value: "0"

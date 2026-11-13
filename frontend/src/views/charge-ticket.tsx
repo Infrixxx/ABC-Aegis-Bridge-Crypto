@@ -1,4 +1,4 @@
-﻿import { useEffect, type ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Ban, Loader2, QrCode, Smartphone, Sparkles, Timer, Undo2, XCircle, type LucideIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -101,7 +101,7 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-background/50 p-4">
               <div className="rounded-xl bg-white p-3">
-                <QRCodeSVG value={order.web_pay_url || `${window.location.origin}/?pay=${order.order_id}`} size={156} level="M" bgColor="#ffffff" fgColor="#111111" />
+                <QRCodeSVG value={(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ? (order.web_pay_url || `${window.location.origin}/?pay=${order.order_id}`) : `${window.location.origin}/?pay=${order.order_id}`} size={156} level="M" bgColor="#ffffff" fgColor="#111111" />
               </div>
               <p className="text-center text-sm text-muted-foreground">
                 <QrCode className="mr-1 inline size-4 align-[-0.15em]" aria-hidden />
@@ -161,7 +161,7 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
         <CardContent className="flex flex-col items-center gap-6 py-14 text-center">
           <Loader2 className="size-12 animate-spin text-muted-foreground" aria-hidden />
           <div>
-            <h2 className="font-display text-3xl font-semibold">Confirming paymentâ€¦</h2>
+            <h2 className="font-display text-3xl font-semibold">Confirming payment...</h2>
             <p className="mt-2 text-muted-foreground">This usually takes a few seconds.</p>
           </div>
           <Amount value={order.amount_zar} sub={sub} />
@@ -209,7 +209,7 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
                 )}
               </a>
               {detail && <CopyButton text={charge.txHash} label="transaction hash" />}
-              {detail && <span className="text-muted-foreground">· tag {order.destination_tag}</span>}
+              {detail && <span className="text-muted-foreground">Â· tag {order.destination_tag}</span>}
             </p>
           )}
 
@@ -259,7 +259,7 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
 
   if (status === "REFUNDED") {
     return (
-      <Outcome icon={Undo2} tone="neutral" title="Refunded" body={`${zar(order.amount_zar)} was marked as refunded.`}>
+      <Outcome icon={Undo2} tone="neutral" title="Refunded" body={`${zar(order.amount_zar)} was refunded on-chain to the payer's XRPL wallet.`}>
         <Button size="lg" onClick={ctl.reset}>
           Next customer
         </Button>

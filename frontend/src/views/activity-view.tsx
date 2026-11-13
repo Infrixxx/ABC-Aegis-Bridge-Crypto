@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Banknote, Bot, CheckCircle2, RefreshCw } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -164,7 +164,7 @@ export function ActivityView({
                   </button>
                 </div>
                 <span className="rounded-full bg-success-soft px-2.5 py-1 text-xs font-semibold text-success-text">
-                  O(1) Cache Active (&lt;0.1ms)
+                  Live LangGraph Stream
                 </span>
               </div>
             </div>
@@ -230,7 +230,7 @@ export function ActivityView({
                   <TH>Order tag</TH>
                   <TH>Customer</TH>
                   <TH className="text-right">ZAR</TH>
-                  <TH className="text-right">RLUSD</TH>
+                  <TH className="text-right">Crypto</TH>
                   <TH>Status</TH>
                   <TH>Tx</TH>
                   <TH>

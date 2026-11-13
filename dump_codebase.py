@@ -9,12 +9,10 @@ import os
 
 OUTPUT_FILE = "codebase_dump.txt"
 EXCLUDE_DIRS = {".git", "node_modules", "dist", "__pycache__", "venv", ".venv", ".idea", ".vscode"}
-EXCLUDE_FILES = {"package-lock.json", "abc_state.db", ".env", OUTPUT_FILE}
-EXCLUDE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".pdf", ".zip", ".exe", ".pyc", ".db", ".sqlite"}
+EXCLUDE_FILES = {"package-lock.json", "abc_state.db", ".env", "REVIEW.md", OUTPUT_FILE}
+EXCLUDE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".pdf", ".zip", ".exe", ".pyc", ".db", ".sqlite", ".db-shm", ".db-wal"}
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-review_file = os.path.abspath(os.path.join(current_dir, "..", "ABC", "REVIEW.md"))
-
 collected = []
 
 for dirpath, dirnames, filenames in os.walk(current_dir):
@@ -25,9 +23,6 @@ for dirpath, dirnames, filenames in os.walk(current_dir):
             full_p = os.path.join(dirpath, f)
             rel_p = os.path.relpath(full_p, current_dir)
             collected.append((rel_p, full_p))
-
-if os.path.exists(review_file):
-    collected.append(("REVIEW.md", review_file))
 
 collected.sort(key=lambda x: x[0])
 

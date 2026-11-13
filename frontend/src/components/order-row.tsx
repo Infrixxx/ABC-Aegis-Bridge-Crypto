@@ -39,7 +39,7 @@ export function OrderRow({
         <span className="min-w-0 flex-1">
           <span className="font-display num block text-xl leading-tight font-semibold">{zar(order.amount_zar)}</span>
           <span className="block truncate text-sm text-muted-foreground">
-            {timeOfDay(order.ts)} · {formatPhone(order.phone_number) || "No number"}
+            {timeOfDay(order.ts)} Â· {formatPhone(order.phone_number) || "No number"}
           </span>
         </span>
         <StatusPill status={order.status} detail={detail} className="hidden sm:inline-flex" />
@@ -56,7 +56,7 @@ export function OrderRow({
                 <dt className="text-muted-foreground">Order tag</dt>
                 <dd className="font-mono">{order.order_id}</dd>
                 <dt className="text-muted-foreground">Settled as</dt>
-                <dd className="num">{rlusd(order.quoted_crypto)} RLUSD</dd>
+                <dd className="num">{rlusd(order.quoted_crypto)} {(order as any).currency || 'XRP'}</dd>
               </>
             )}
             <dt className="text-muted-foreground">Proof</dt>

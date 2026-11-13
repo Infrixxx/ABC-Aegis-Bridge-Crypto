@@ -1,4 +1,4 @@
-# ── Python ───────────────────────────────────────────────────────────────────
+﻿# ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -19,10 +19,14 @@ env/
 # ── Environment Variables (NEVER COMMIT THESE) ────────────────────────────────
 .env
 *.env
+backend/.env
+frontend/.env
 !.env.example
 
 # ── Database Files ────────────────────────────────────────────────────────────
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
@@ -37,7 +41,7 @@ Thumbs.db
 # ── Logs & Dumps ──────────────────────────────────────────────────────────────
 *.log
 logs/
-codebase_dump.txt
+codebase_dump*.txt
 project_dump.txt
 
 # ── Node / Frontend ───────────────────────────────────────────────────────────
@@ -45,4 +49,3 @@ node_modules/
 dist/
 .next/
 .nuxt/
-frontend/.env

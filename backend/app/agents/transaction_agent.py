@@ -2,6 +2,8 @@
 app/agents/transaction_agent.py
 ─────────────────────────────────
 Transaction Agent — final node in the LangGraph pipeline.
+Executes XRPL Payment (consumer flow) or cryptographic PaymentChannelClaim (M2M flow).
+Maps on-ledger channel overspend rejections directly to BUDGET_EXCEEDED (HTTP 402).
 """
 
 import sqlite3
@@ -20,20 +22,19 @@ def transaction_node(state: ABCState) -> ABCState:
     amount_usdc = state["amount_usdc"]
     destination_tag = state.get("destination_tag", int(order_id))
     channel_id = state.get("channel_id")
+    asset_label = "XRP" if channel_id else settings.active_currency
 
     logger.info(
-        "[Transaction] Settling order=%s amount=%.6f to=%s tag=%d",
-        order_id, amount_usdc, merchant_address, destination_tag,
+        "[Transaction] Settling order=%s amount=%.6f %s to=%s tag=%d",
+        order_id, amount_usdc, asset_label, merchant_address, destination_tag,
     )
 
-    # Pre-flight check: ensure order wasn't paid concurrently
     conn_pre = sqlite3.connect(settings.DB_FILE)
     cursor_pre = conn_pre.cursor()
     try:
         cursor_pre.execute("SELECT status, tx_hash FROM orders WHERE order_id = ?", (order_id,))
         pre_row = cursor_pre.fetchone()
         if pre_row and pre_row[0] == "PAID":
-            logger.warning("[Transaction] Order %s already PAID with tx_hash=%s. Short-circuiting.", order_id, pre_row[1])
             return {
                 **state,
                 "status": "PAID",
@@ -44,12 +45,23 @@ def transaction_node(state: ABCState) -> ABCState:
         conn_pre.close()
 
     try:
-        result = xrpl_service.send_payment(
-            order_id=order_id,
-            merchant_address=merchant_address,
-            amount_rlusd=amount_usdc,
-            destination_tag=destination_tag,
-        )
+        if channel_id:
+            ch_info = xrpl_service.get_channel_balance(channel_id)
+            already_claimed_xrp = float(ch_info.get("spent_xrp", 0.0))
+            cumulative_xrp = already_claimed_xrp + float(amount_usdc)
+
+            result = xrpl_service.sign_and_claim_payment_channel(
+                channel_id=channel_id,
+                cumulative_xrp=cumulative_xrp,
+                order_id=order_id,
+            )
+        else:
+            result = xrpl_service.send_payment(
+                order_id=order_id,
+                merchant_address=merchant_address,
+                amount_rlusd=amount_usdc,
+                destination_tag=destination_tag,
+            )
 
         tx_hash = result["tx_hash"]
         explorer_url = result["explorer_url"]
@@ -63,13 +75,10 @@ def transaction_node(state: ABCState) -> ABCState:
             )
             if channel_id:
                 cursor.execute(
-                    "UPDATE machine_budgets SET current_spent = current_spent + ? WHERE channel_id = ?",
-                    (amount_usdc, channel_id),
+                    "UPDATE machine_budgets SET current_spent = ? WHERE channel_id = ?",
+                    (cumulative_xrp, channel_id),
                 )
             conn.commit()
-            logger.info(
-                "[Transaction] [PAID] order=%s tx_hash=%s", order_id, tx_hash
-            )
         finally:
             conn.close()
 
@@ -79,7 +88,7 @@ def transaction_node(state: ABCState) -> ABCState:
                 from app.services.africas_talking_service import send_sms
                 send_sms(
                     to_phone=phone_number,
-                    message=f"Aegis Bridge: Order {order_id} settled on-chain! {amount_usdc:.2f} RLUSD. Tx: {tx_hash[:12]}...",
+                    message=f"Aegis Bridge: Order {order_id} settled on XRPL! {amount_usdc:.4f} {asset_label}. Tx: {tx_hash[:12]}...",
                 )
             except Exception as sms_err:
                 logger.warning("[Transaction] SMS notification skipped: %s", sms_err)
@@ -92,18 +101,28 @@ def transaction_node(state: ABCState) -> ABCState:
             "error": None,
         }
 
-    except Exception as exc:
-        logger.exception(
-            "[Transaction] ❌ XRPL payment failed for order=%s: %s", order_id, exc
-        )
-
+    except xrpl_service.LedgerCapExceededError as cap_err:
+        logger.warning("[Transaction] On-Ledger PaymentChannelClaim rejected: %s", cap_err)
         conn = sqlite3.connect(settings.DB_FILE)
-        cursor = conn.cursor()
         try:
-            cursor.execute(
-                "UPDATE orders SET status = 'FAILED' WHERE order_id = ?",
-                (order_id,),
-            )
+            conn.execute("UPDATE orders SET status = 'BUDGET_EXCEEDED' WHERE order_id = ?", (order_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+        return {
+            **state,
+            "tx_hash": None,
+            "explorer_url": None,
+            "status": "BUDGET_EXCEEDED",
+            "error": str(cap_err),
+        }
+
+    except Exception as exc:
+        logger.exception("[Transaction] XRPL payment failed for order=%s: %s", order_id, exc)
+        conn = sqlite3.connect(settings.DB_FILE)
+        try:
+            conn.execute("UPDATE orders SET status = 'FAILED' WHERE order_id = ?", (order_id,))
             conn.commit()
         finally:
             conn.close()

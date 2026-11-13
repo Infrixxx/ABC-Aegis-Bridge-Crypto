@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/db/db_setup.py
 ───────────────────
 Initialises the ABC SQLite hybrid ledger and seeds the local threat cache.
@@ -38,9 +38,13 @@ def init_db():
         merchant_address   TEXT,
         amount_zar         REAL,
         quoted_crypto      REAL,
+        currency           TEXT DEFAULT 'XRP',
+        fx_source          TEXT DEFAULT 'live',
         fx_lock_expires_at TIMESTAMP,
         status             TEXT DEFAULT 'PENDING',
         tx_hash            TEXT,
+        refund_tx_hash     TEXT,
+        agent_trace        TEXT DEFAULT '[]',
         created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(phone_number) REFERENCES users(phone_number)
     )
@@ -87,7 +91,6 @@ def init_db():
         DEFAULT_FLAGGED_WALLETS,
     )
 
-    # Seed Default Hackathon Persona Accounts (password: password123)
     default_users = [
         (
             "usr_thandi_shop",
@@ -95,7 +98,7 @@ def init_db():
             "abc2026salt:acd588a716d8edea435f31921b87e3806953452e706a383b2ae7fc40de746042",
             "Sis Thandi",
             "shop",
-            "Thandi's Spaza & Groceries (Soweto)",
+            "Thandi's Spaza & Groceries (Persona)",
             "rKasiSpazaSettlementWallet8888",
         ),
         (
@@ -135,6 +138,9 @@ def _run_migrations(cursor):
     migrations = [
         ("orders",          "merchant_address",   "TEXT"),
         ("orders",          "tx_hash",            "TEXT"),
+        ("orders",          "refund_tx_hash",     "TEXT"),
+        ("orders",          "currency",           "TEXT DEFAULT 'XRP'"),
+        ("orders",          "fx_source",          "TEXT DEFAULT 'live'"),
         ("orders",          "agent_trace",        "TEXT DEFAULT '[]'"),
         ("machine_budgets", "channel_id",         "TEXT"),
         ("machine_budgets", "approved_suppliers", "TEXT DEFAULT '[]'"),

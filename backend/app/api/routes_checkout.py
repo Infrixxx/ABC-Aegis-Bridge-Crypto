@@ -1,7 +1,7 @@
-﻿"""
+"""
 app/api/routes_checkout.py
 ───────────────────────────
-POST /api/checkout/
+Checkout creation, live ZAR/USD FX quoting, order polling, and atomic on-chain refunds.
 """
 
 import socket
@@ -9,10 +9,11 @@ import sqlite3
 import requests
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.api.routes_auth import get_current_user, UserPublic
 from app.agents.supervisor import get_order_trace, RECENT_TRACES
 
 logger = logging.getLogger("abc.checkout")
@@ -20,7 +21,6 @@ router = APIRouter()
 
 
 def get_lan_ip() -> str:
-    """Detects the laptop's Wi-Fi LAN IP so a phone scanning the QR code can connect."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(0.2)
@@ -38,26 +38,35 @@ class CheckoutRequest(BaseModel):
     merchant_address: str = settings.MERCHANT_WALLET_ADDRESS
 
 
-def get_live_zar_to_usdc_rate() -> float:
-    if not settings.API_NINJAS_KEY or settings.API_NINJAS_KEY == "your_api_ninjas_key_here":
-        logger.warning("API_NINJAS_KEY not set — using fallback rate %.4f", settings.FX_FALLBACK_RATE)
-        return settings.FX_FALLBACK_RATE
+def get_live_zar_to_usdc_rate() -> tuple[float, str]:
+    """
+    Fetches live ZAR/USD exchange rate:
+      1. Uses API Ninjas if API_NINJAS_KEY is configured.
+      2. Otherwise queries open.er-api.com (free, zero API key required).
+      3. Falls back to settings.FX_FALLBACK_RATE (0.055) if offline.
+    """
+    if settings.API_NINJAS_KEY and settings.API_NINJAS_KEY != "your_api_ninjas_key_here":
+        try:
+            response = requests.get(
+                "https://api.api-ninjas.com/v1/exchangerate",
+                params={"pair": "ZAR_USD"},
+                headers={"X-Api-Key": settings.API_NINJAS_KEY},
+                timeout=3,
+            )
+            response.raise_for_status()
+            rate = float(response.json()["exchange_rate"])
+            return rate, "live (api-ninjas)"
+        except Exception as exc:
+            logger.warning("API Ninjas FX failed (%s) — trying open.er-api.com", exc)
 
     try:
-        response = requests.get(
-            "https://api.api-ninjas.com/v1/exchangerate",
-            params={"pair": "ZAR_USD"},
-            headers={"X-Api-Key": settings.API_NINJAS_KEY},
-            timeout=5,
-        )
-        response.raise_for_status()
-        rate = response.json()["exchange_rate"]
-        logger.info("Live FX rate fetched: %.6f ZAR/USD", rate)
-        return rate
-
-    except requests.exceptions.RequestException as exc:
-        logger.error("FX fetch failed: %s — using fallback %.4f", exc, settings.FX_FALLBACK_RATE)
-        return settings.FX_FALLBACK_RATE
+        res = requests.get("https://open.er-api.com/v6/latest/ZAR", timeout=3)
+        res.raise_for_status()
+        rate = float(res.json()["rates"]["USD"])
+        return rate, "live (open.er-api)"
+    except Exception as exc:
+        logger.warning("Live FX fetch failed (%s) — using fallback %.4f", exc, settings.FX_FALLBACK_RATE)
+        return settings.FX_FALLBACK_RATE, "fallback (0.055)"
 
 
 def generate_unique_destination_tag(cursor) -> int:
@@ -76,12 +85,13 @@ def create_checkout(request: CheckoutRequest):
     cursor = conn.cursor()
 
     merchant_addr = request.merchant_address or settings.MERCHANT_WALLET_ADDRESS
+    active_curr = settings.active_currency
 
     try:
         destination_tag = generate_unique_destination_tag(cursor)
         order_id = str(destination_tag)
 
-        live_rate = get_live_zar_to_usdc_rate()
+        live_rate, fx_source = get_live_zar_to_usdc_rate()
         quoted_crypto = round(request.amount_zar * live_rate, 6)
         expiry_time = datetime.utcnow() + timedelta(seconds=settings.FX_LOCK_SECONDS)
 
@@ -94,8 +104,8 @@ def create_checkout(request: CheckoutRequest):
             """
             INSERT INTO orders
                 (order_id, phone_number, merchant_address, amount_zar,
-                 quoted_crypto, fx_lock_expires_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+                 quoted_crypto, currency, fx_source, fx_lock_expires_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
             """,
             (
                 order_id,
@@ -103,12 +113,12 @@ def create_checkout(request: CheckoutRequest):
                 merchant_addr,
                 request.amount_zar,
                 quoted_crypto,
+                active_curr,
+                fx_source,
                 expiry_time.isoformat(),
             ),
         )
         conn.commit()
-        logger.info("Order %s created: R%.2f → %.6f RLUSD (expires %s)", order_id, request.amount_zar, quoted_crypto, expiry_time.isoformat())
-
     except Exception as exc:
         conn.rollback()
         logger.exception("Checkout creation failed")
@@ -123,7 +133,8 @@ def create_checkout(request: CheckoutRequest):
         "destination_tag": destination_tag,
         "amount_zar": request.amount_zar,
         "quoted_crypto": quoted_crypto,
-        "currency": "RLUSD",
+        "currency": active_curr,
+        "fx_source": fx_source,
         "merchant_address": merchant_addr,
         "expires_at": expiry_time.isoformat(),
         "fx_lock_seconds": settings.FX_LOCK_SECONDS,
@@ -139,7 +150,6 @@ def create_checkout(request: CheckoutRequest):
 
 @router.get("/traces/recent")
 def list_recent_traces():
-    """Returns the most recent LangGraph Multi-Agent execution traces for the UI inspector."""
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -164,7 +174,8 @@ def get_order_status(order_id: str):
         cursor.execute(
             """
             SELECT order_id, phone_number, merchant_address, amount_zar,
-                   quoted_crypto, fx_lock_expires_at, status, tx_hash
+                   quoted_crypto, fx_lock_expires_at, status, tx_hash,
+                   refund_tx_hash, currency, fx_source
             FROM orders WHERE order_id = ?
             """,
             (order_id,),
@@ -185,6 +196,9 @@ def get_order_status(order_id: str):
         "fx_lock_expires_at": row[5],
         "status":             row[6],
         "tx_hash":            row[7],
+        "refund_tx_hash":     row[8],
+        "currency":           row[9] or settings.active_currency,
+        "fx_source":          row[10] or "live",
         "agent_trace":        get_order_trace(row[0]),
     }
 
@@ -197,7 +211,8 @@ def list_orders(limit: int = 20):
         cursor.execute(
             """
             SELECT order_id, phone_number, merchant_address, amount_zar,
-                   quoted_crypto, fx_lock_expires_at, status, tx_hash, created_at
+                   quoted_crypto, fx_lock_expires_at, status, tx_hash,
+                   created_at, refund_tx_hash, currency, fx_source
             FROM orders
             ORDER BY created_at DESC LIMIT ?
             """,
@@ -219,6 +234,9 @@ def list_orders(limit: int = 20):
             "status": row[6],
             "tx_hash": row[7],
             "created_at": row[8],
+            "refund_tx_hash": row[9],
+            "currency": row[10] or settings.active_currency,
+            "fx_source": row[11] or "live",
             "agent_trace": get_order_trace(row[0]),
         })
     return {"orders": orders}
@@ -230,7 +248,10 @@ class RefundRequest(BaseModel):
 
 
 @router.post("/refund")
-def refund_order(request: RefundRequest):
+def refund_order(
+    request: RefundRequest,
+    current_user: UserPublic = Depends(get_current_user),
+):
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -244,16 +265,42 @@ def refund_order(request: RefundRequest):
         if row[3] != "PAID":
             raise HTTPException(status_code=400, detail=f"Cannot refund order with status '{row[3]}'")
 
+        # Atomic lock to prevent double-refund race condition
         cursor.execute(
-            "UPDATE orders SET status = 'REFUNDED' WHERE order_id = ?",
+            "UPDATE orders SET status = 'PROCESSING' WHERE order_id = ? AND status = 'PAID'",
             (request.order_id,),
         )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Refund already in progress for this order.")
         conn.commit()
-        logger.info("Order %s marked REFUNDED. Reason: %s", request.order_id, request.reason)
+    finally:
+        conn.close()
+
+    try:
+        from app.services import xrpl_service
+        refund_tx = xrpl_service.send_refund(order_id=request.order_id, amount_crypto=float(row[2]))
+
+        conn2 = sqlite3.connect(settings.DB_FILE)
+        conn2.execute(
+            "UPDATE orders SET status = 'REFUNDED', refund_tx_hash = ? WHERE order_id = ?",
+            (refund_tx["tx_hash"], request.order_id),
+        )
+        conn2.commit()
+        conn2.close()
+
+        logger.info("Order %s refunded on-chain by %s: refund_tx=%s", request.order_id, current_user.email, refund_tx["tx_hash"])
         return {
             "status": "success",
             "order_id": request.order_id,
-            "message": f"Order {request.order_id} successfully refunded.",
+            "refund_tx_hash": refund_tx["tx_hash"],
+            "explorer_url": refund_tx["explorer_url"],
+            "message": f"Order {request.order_id} refunded on-chain (tx: {refund_tx['tx_hash'][:12]}...).",
         }
-    finally:
-        conn.close()
+    except Exception as exc:
+        conn_err = sqlite3.connect(settings.DB_FILE)
+        conn_err.execute("UPDATE orders SET status = 'PAID' WHERE order_id = ?", (request.order_id,))
+        conn_err.commit()
+        conn_err.close()
+        logger.exception("On-chain refund failed for order %s", request.order_id)
+        raise HTTPException(status_code=500, detail=f"On-chain refund failed: {exc}")
