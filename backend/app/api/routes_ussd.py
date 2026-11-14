@@ -1,11 +1,11 @@
 """
 app/api/routes_ussd.py
-───────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 POST /api/ussd/
 
 Africa's Talking USSD webhook handler with:
-  • Caller Phone Number Binding Verification
-  • 4-Digit Custodial Wallet PIN Authentication (Default Demo PIN: 1234)
+  â€¢ Caller Phone Number Binding Verification
+  â€¢ 4-Digit Custodial Wallet PIN Authentication (Default Demo PIN: 1234)
 """
 
 import re
@@ -190,7 +190,7 @@ def _confirm_payment(
     threading.Thread(target=_run_pipeline, daemon=True).start()
 
     return (
-        "END PIN Verified & Payment Signed!\n"
+        "END Payment Confirmed! (PIN Verified)\n"
         f"Settling {settings.active_currency} on XRP Ledger Testnet.\n"
         "Check the merchant screen for PAID confirmation."
     )

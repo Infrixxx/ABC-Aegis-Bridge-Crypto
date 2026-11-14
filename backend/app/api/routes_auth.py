@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/api/routes_auth.py
 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 User authentication and session management for Aegis Bridge Crypto (ABC).
@@ -28,7 +28,7 @@ logger = logging.getLogger("abc.auth")
 router = APIRouter()
 
 DB_FILE = settings.DB_FILE
-SECRET_KEY = getattr(settings, "AUTH_SECRET_KEY", "abc_hackathon_secure_jwt_secret_key_2026")
+SECRET_KEY = settings.AUTH_SECRET_KEY
 
 
 # â”€â”€ Password & Token Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

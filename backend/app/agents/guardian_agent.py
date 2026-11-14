@@ -1,7 +1,7 @@
 """
 app/agents/guardian_agent.py
-──────────────────────────────
-Guardian Agent — second node in the LangGraph pipeline.
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+Guardian Agent â€” second node in the LangGraph pipeline.
 Enforces operator kill-switch and supplier allowlists, queries live XRPL
 Payment Channel state without double-counting SQLite spend, and delegates
 hard cap rejection to on-ledger `PaymentChannelClaim` when live on XRPL.
@@ -38,7 +38,7 @@ def guardian_node(state: ABCState) -> ABCState:
     merchant_address = state["merchant_address"]
 
     if not channel_id:
-        logger.info("[Guardian] Consumer payment order=%s — no channel constraint", order_id)
+        logger.info("[Guardian] Consumer payment order=%s â€” no channel constraint", order_id)
         return {
             **state,
             "channel_balance_xrp": 0.0,
@@ -111,6 +111,12 @@ def guardian_node(state: ABCState) -> ABCState:
     # so the XRP Ledger itself enforces the cap and returns a real XRPL result code!
     if not xrpl_service._is_real_seed_configured() and amount_usdc > effective_remaining:
         _update_order_status(order_id, "BUDGET_EXCEEDED")
+        from app.services.operator_alerts import alert_operator
+        alert_operator(
+            channel_id,
+            f"ABC Guardian: payment of {amount_usdc:.2f} XRP BLOCKED for order {order_id} "
+            f"(only {effective_remaining:.2f} XRP left). Top up in the console to allow it.",
+        )
         return {
             **state,
             "channel_balance_xrp": effective_remaining,

@@ -1,11 +1,11 @@
 """
 app/services/xrpl_service.py
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 All XRP Ledger interactions for the ABC engine:
-  â€¢ Direct Payment settlement (RLUSD IOU or native XRP)
-  â€¢ On-ledger PaymentChannelCreate, PaymentChannelFund, and cryptographic PaymentChannelClaim (CLM\0)
-  â€¢ On-chain Merchant Refund (reverse Payment with Memo)
-  â€¢ AccountTx ledger polling for automatic order matching (PAID / UNDERPAID / LATE)
+  Ã¢â‚¬Â¢ Direct Payment settlement (RLUSD IOU or native XRP)
+  Ã¢â‚¬Â¢ On-ledger PaymentChannelCreate, PaymentChannelFund, and cryptographic PaymentChannelClaim (CLM\0)
+  Ã¢â‚¬Â¢ On-chain Merchant Refund (reverse Payment with Memo)
+  Ã¢â‚¬Â¢ AccountTx ledger polling for automatic order matching (PAID / UNDERPAID / LATE)
 """
 
 import logging
@@ -81,8 +81,18 @@ def _resolve_destination(treasury_address: str, requested_destination: str) -> s
     }
     if dest in unactivated_placeholders or dest.startswith("rXXX"):
         if _is_real_seed_configured(settings.MERCHANT_SEED):
-            return _get_merchant_wallet().address
-        return settings.MERCHANT_WALLET_ADDRESS
+            m_addr = _get_merchant_wallet().address
+            if m_addr != treasury_address:
+                return m_addr
+        if settings.MERCHANT_WALLET_ADDRESS and settings.MERCHANT_WALLET_ADDRESS != treasury_address:
+            return settings.MERCHANT_WALLET_ADDRESS
+    if dest == treasury_address:
+        # Never allow Account == Destination (temREDUNDANT on XRPL)
+        from xrpl.wallet import generate_faucet_wallet
+        mw = generate_faucet_wallet(_get_client(), debug=False)
+        settings.MERCHANT_SEED = mw.seed
+        settings.MERCHANT_WALLET_ADDRESS = mw.address
+        return mw.address
     return dest
 
 

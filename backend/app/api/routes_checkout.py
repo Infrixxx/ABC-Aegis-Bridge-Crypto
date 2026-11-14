@@ -1,6 +1,6 @@
 """
 app/api/routes_checkout.py
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 Checkout creation, live ZAR/USD FX quoting, order polling, and atomic on-chain refunds.
 """
 
@@ -57,7 +57,7 @@ def get_live_zar_to_usdc_rate() -> tuple[float, str]:
             rate = float(response.json()["exchange_rate"])
             return rate, "live (api-ninjas)"
         except Exception as exc:
-            logger.warning("API Ninjas FX failed (%s) â€” trying open.er-api.com", exc)
+            logger.warning("API Ninjas FX failed (%s) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â trying open.er-api.com", exc)
 
     try:
         res = requests.get("https://open.er-api.com/v6/latest/ZAR", timeout=3)
@@ -65,7 +65,7 @@ def get_live_zar_to_usdc_rate() -> tuple[float, str]:
         rate = float(res.json()["rates"]["USD"])
         return rate, "live (open.er-api)"
     except Exception as exc:
-        logger.warning("Live FX fetch failed (%s) â€” using fallback %.4f", exc, settings.FX_FALLBACK_RATE)
+        logger.warning("Live FX fetch failed (%s) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â using fallback %.4f", exc, settings.FX_FALLBACK_RATE)
         return settings.FX_FALLBACK_RATE, "fallback (0.055)"
 
 
@@ -149,7 +149,7 @@ def create_checkout(request: CheckoutRequest):
 
 
 @router.get("/traces/recent")
-def list_recent_traces():
+def list_recent_traces(current_user: UserPublic = Depends(get_current_user)):
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:
@@ -204,7 +204,7 @@ def get_order_status(order_id: str):
 
 
 @router.get("/")
-def list_orders(limit: int = 20):
+def list_orders(limit: int = 20, current_user: UserPublic = Depends(get_current_user)):
     conn = sqlite3.connect(settings.DB_FILE)
     cursor = conn.cursor()
     try:

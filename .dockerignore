@@ -1,0 +1,12 @@
+**/.env
+**/*.env
+!**/.env.example
+**/node_modules
+**/venv
+**/.venv
+**/__pycache__
+*.db
+*.db-shm
+*.db-wal
+.git
+codebase_dump*.txt

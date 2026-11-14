@@ -1,7 +1,7 @@
 """
 app/agents/transaction_agent.py
-─────────────────────────────────
-Transaction Agent — final node in the LangGraph pipeline.
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+Transaction Agent â€” final node in the LangGraph pipeline.
 Executes XRPL Payment (consumer flow) or cryptographic PaymentChannelClaim (M2M flow).
 Maps on-ledger channel overspend rejections directly to BUDGET_EXCEEDED (HTTP 402).
 """
@@ -109,6 +109,13 @@ def transaction_node(state: ABCState) -> ABCState:
             conn.commit()
         finally:
             conn.close()
+
+        from app.services.operator_alerts import alert_operator
+        alert_operator(
+            channel_id,
+            f"ABC Guardian: the XRP Ledger BLOCKED a payment of {amount_usdc:.2f} XRP for order {order_id} "
+            f"(over the channel cap). Top up in the console to allow it.",
+        )
 
         return {
             **state,

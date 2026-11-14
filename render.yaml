@@ -9,3 +9,5 @@ services:
         value: "60"
       - key: ALLOW_SIMULATION
         value: "0"
+      - key: AUTH_SECRET_KEY
+        generateValue: true

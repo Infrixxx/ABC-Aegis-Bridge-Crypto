@@ -1,6 +1,6 @@
 """
 app/agents/supervisor.py
-──────────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Triggers the ABC LangGraph pipeline using `.stream()` to measure real
 per-node execution latencies (ms) and honest currency labels.
 """
@@ -168,11 +168,12 @@ def run_payment_pipeline(
                         )
                         if channel_id and max_cap > 0 and ((rem - float(quoted_crypto)) / max_cap) < 0.30 and (rem >= float(quoted_crypto)):
                             pct_left = max(0.0, ((rem - float(quoted_crypto)) / max_cap) * 100)
-                            note += f" [PROACTIVE ALERT: Channel at {pct_left:.0f}% (<30% threshold) — SMS alert dispatched!]"
+                            note += f" [PROACTIVE ALERT: Channel at {pct_left:.0f}% (<30% threshold) â€” SMS alert dispatched!]"
                             try:
                                 from app.services.africas_talking_service import send_sms
+                                from app.services.operator_alerts import operator_phone_for_channel
                                 send_sms(
-                                    to_phone=phone_number or "+27839998888",
+                                    to_phone=operator_phone_for_channel(channel_id) or phone_number or "+27839998888",
                                     message=f"ABC Guardian Alert: Channel {channel_id[:8]}... at {pct_left:.0f}% ({rem - float(quoted_crypto):.2f} XRP left).",
                                 )
                             except Exception:
