@@ -209,7 +209,7 @@ export function Ticket({ ctl, detail }: { ctl: Ctl; detail: boolean }) {
                 )}
               </a>
               {detail && <CopyButton text={charge.txHash} label="transaction hash" />}
-              {detail && <span className="text-muted-foreground">Â· tag {order.destination_tag}</span>}
+              {detail && <span className="text-muted-foreground">· tag {order.destination_tag}</span>}
             </p>
           )}
 

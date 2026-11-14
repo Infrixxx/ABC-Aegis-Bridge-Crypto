@@ -26,7 +26,7 @@ for dirpath, dirnames, filenames in os.walk(current_dir):
 
 collected.sort(key=lambda x: x[0])
 
-with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
+with open(OUTPUT_FILE, "w", encoding="utf-8-sig") as out:
     out.write("=" * 80 + "\n")
     out.write("COMPLETE PROJECT DIRECTORY TREE (Backend + Multi-Persona TypeScript Frontend)\n")
     out.write("=" * 80 + "\n")

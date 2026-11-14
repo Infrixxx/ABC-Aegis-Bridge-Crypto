@@ -1,9 +1,12 @@
 """
 app/db/db_setup.py
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-Initialises the ABC SQLite hybrid ledger and seeds the local threat cache.
+-------------------
+Initialises the ABC SQLite hybrid ledger, hashes custodial PINs, and seeds the local threat cache.
 """
 
+import hashlib
+import hmac
+import secrets
 import sqlite3
 from app.core.config import settings
 
@@ -14,6 +17,29 @@ DEFAULT_FLAGGED_WALLETS = [
     ("rKnownPhishingExploitAddress999", "Known Phishing & Replay Exploit Actor"),
     ("rSybilBotnetAggregatorWallet000", "Automated Sybil Botnet Drain Address"),
 ]
+
+
+def hash_pin(pin: str, salt: str | None = None) -> str:
+    """PBKDF2-HMAC-SHA256 hash for 4-digit custodial USSD/IVR PINs."""
+    s = salt or secrets.token_hex(8)
+    digest = hashlib.pbkdf2_hmac("sha256", pin.strip().encode("utf-8"), s.encode("utf-8"), 50_000).hex()
+    return f"{s}:{digest}"
+
+
+def verify_pin(pin_input: str, stored_hash: str | None) -> bool:
+    """Constant-time verification of a 4-digit PIN against its stored PBKDF2 hash."""
+    if not pin_input or not stored_hash:
+        return False
+    clean_input = pin_input.strip()
+    if ":" not in stored_hash:
+        # Legacy plaintext row migration check
+        return hmac.compare_digest(clean_input, stored_hash.strip())
+    salt, expected_hex = stored_hash.split(":", 1)
+    actual = hash_pin(clean_input, salt=salt)
+    return hmac.compare_digest(actual, f"{salt}:{expected_hex}")
+
+
+DEFAULT_DEMO_PIN_HASH = hash_pin("1234", salt="abcdemopin")
 
 
 def init_db():
@@ -27,6 +53,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users (
         phone_number     TEXT PRIMARY KEY,
         custodial_wallet TEXT,
+        wallet_pin       TEXT,
         created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -86,6 +113,12 @@ def init_db():
 
     _run_migrations(cursor)
 
+    # Upgrade any legacy plaintext '1234' PINs to PBKDF2 hashes
+    cursor.execute(
+        "UPDATE users SET wallet_pin = ? WHERE wallet_pin IS NULL OR wallet_pin = '1234'",
+        (DEFAULT_DEMO_PIN_HASH,),
+    )
+
     cursor.executemany(
         "INSERT OR IGNORE INTO flagged_addresses (wallet_address, flag_reason) VALUES (?, ?)",
         DEFAULT_FLAGGED_WALLETS,
@@ -131,7 +164,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print("[OK] ABC SQLite Database & Threat Cache Initialised Successfully.")
+    print("[OK] ABC SQLite Database, Hashed PINs & Threat Cache Initialised Successfully.")
 
 
 def _run_migrations(cursor):
@@ -145,7 +178,7 @@ def _run_migrations(cursor):
         ("machine_budgets", "channel_id",         "TEXT"),
         ("machine_budgets", "approved_suppliers", "TEXT DEFAULT '[]'"),
         ("machine_budgets", "is_key_revoked",     "INTEGER DEFAULT 0"),
-        ("users",           "wallet_pin",         "TEXT DEFAULT '1234'"),
+        ("users",           "wallet_pin",         "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:

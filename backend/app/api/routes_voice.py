@@ -1,10 +1,10 @@
 """
 app/api/routes_voice.py
-────────────────────────
+------------------------
 POST /api/voice/
 
 Africa's Talking Toll-Free IVR (Interactive Voice Response) webhook
-with Caller ID matching and 4-digit PIN verification.
+with strict Caller ID matching and PBKDF2 4-digit PIN verification.
 """
 
 import re
@@ -15,6 +15,7 @@ from datetime import datetime
 from fastapi import APIRouter, Form, Response
 
 from app.core.config import settings
+from app.db.db_setup import verify_pin, DEFAULT_DEMO_PIN_HASH
 from app.agents.supervisor import run_payment_pipeline
 
 logger = logging.getLogger("abc.voice")
@@ -70,11 +71,11 @@ def voice_callback(
     if row:
         order_id, amount_zar, quoted_crypto, status, fx_lock_expires_at, order_phone = row
 
-        if order_phone and callerNumber and _norm_phone(order_phone) != _norm_phone(callerNumber):
+        if not (order_phone or "").strip() or not (callerNumber or "").strip() or _norm_phone(order_phone) != _norm_phone(callerNumber):
             xml = (
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 '<Response>\n'
-                '    <Say>Security alert. Your caller ID does not match the phone number on this order. Goodbye.</Say>\n'
+                '    <Say>Security alert. Your caller ID is missing or does not match the phone number on this order. Goodbye.</Say>\n'
                 '</Response>'
             )
             return Response(content=xml, media_type="application/xml")
@@ -139,17 +140,17 @@ def voice_confirm(
             )
         order_phone, fx_lock_expires_at = row
 
-        if order_phone and callerNumber and _norm_phone(order_phone) != _norm_phone(callerNumber):
+        if not (order_phone or "").strip() or not (callerNumber or "").strip() or _norm_phone(order_phone) != _norm_phone(callerNumber):
             return Response(
                 content='<?xml version="1.0" encoding="UTF-8"?><Response><Say>Caller phone mismatch. Payment blocked.</Say></Response>',
                 media_type="application/xml",
             )
 
-        cursor.execute("SELECT wallet_pin FROM users WHERE phone_number = ?", (order_phone or callerNumber,))
+        cursor.execute("SELECT wallet_pin FROM users WHERE phone_number = ?", (order_phone,))
         u_row = cursor.fetchone()
-        expected_pin = (u_row[0] if u_row and u_row[0] else "1234").strip()
+        stored_pin_hash = u_row[0] if (u_row and u_row[0]) else DEFAULT_DEMO_PIN_HASH
 
-        if pin_clean not in (expected_pin, "1234", "1"):
+        if not verify_pin(pin_clean, stored_pin_hash):
             return Response(
                 content='<?xml version="1.0" encoding="UTF-8"?><Response><Say>Incorrect security PIN. Transaction declined. Goodbye.</Say></Response>',
                 media_type="application/xml",

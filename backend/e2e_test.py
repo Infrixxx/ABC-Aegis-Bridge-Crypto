@@ -131,7 +131,7 @@ def run_e2e_suite():
 
     ussd_res = requests.post(
         f"{API_BASE}/api/ussd/",
-        data={"sessionId": f"e2e-{order_id}", "serviceCode": "*123#", "phoneNumber": "+27821234567", "text": f"{order_id}*1"},
+        data={"sessionId": f"e2e-{order_id}", "serviceCode": "*123#", "phoneNumber": "+27821234567", "text": f"{order_id}*1234"},
         timeout=10,
     )
     assert ussd_res.status_code == 200

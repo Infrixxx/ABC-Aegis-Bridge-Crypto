@@ -39,7 +39,7 @@ export function OrderRow({
         <span className="min-w-0 flex-1">
           <span className="font-display num block text-xl leading-tight font-semibold">{zar(order.amount_zar)}</span>
           <span className="block truncate text-sm text-muted-foreground">
-            {timeOfDay(order.ts)} Â· {formatPhone(order.phone_number) || "No number"}
+            {timeOfDay(order.ts)} · {formatPhone(order.phone_number) || "No number"}
           </span>
         </span>
         <StatusPill status={order.status} detail={detail} className="hidden sm:inline-flex" />

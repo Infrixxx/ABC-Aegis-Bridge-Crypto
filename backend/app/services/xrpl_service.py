@@ -81,18 +81,14 @@ def _resolve_destination(treasury_address: str, requested_destination: str) -> s
     }
     if dest in unactivated_placeholders or dest.startswith("rXXX"):
         if _is_real_seed_configured(settings.MERCHANT_SEED):
-            m_addr = _get_merchant_wallet().address
-            if m_addr != treasury_address:
-                return m_addr
-        if settings.MERCHANT_WALLET_ADDRESS and settings.MERCHANT_WALLET_ADDRESS != treasury_address:
-            return settings.MERCHANT_WALLET_ADDRESS
-    if dest == treasury_address:
-        # Never allow Account == Destination (temREDUNDANT on XRPL)
-        from xrpl.wallet import generate_faucet_wallet
-        mw = generate_faucet_wallet(_get_client(), debug=False)
-        settings.MERCHANT_SEED = mw.seed
-        settings.MERCHANT_WALLET_ADDRESS = mw.address
-        return mw.address
+            dest = _get_merchant_wallet().address
+        else:
+            dest = settings.MERCHANT_WALLET_ADDRESS
+    if not dest or dest == treasury_address:
+        raise RuntimeError(
+            "Merchant destination address cannot equal Treasury address (XRPL temREDUNDANT). "
+            "Verify MERCHANT_SEED / MERCHANT_WALLET_ADDRESS."
+        )
     return dest
 
 

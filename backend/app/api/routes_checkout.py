@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.db.db_setup import DEFAULT_DEMO_PIN_HASH
 from app.api.routes_auth import get_current_user, UserPublic
 from app.agents.supervisor import get_order_trace, RECENT_TRACES
 
@@ -96,8 +97,8 @@ def create_checkout(request: CheckoutRequest):
         expiry_time = datetime.utcnow() + timedelta(seconds=settings.FX_LOCK_SECONDS)
 
         cursor.execute(
-            "INSERT OR IGNORE INTO users (phone_number, custodial_wallet) VALUES (?, ?)",
-            (request.phone_number, "rPendingCustodialWallet"),
+            "INSERT OR IGNORE INTO users (phone_number, custodial_wallet, wallet_pin) VALUES (?, ?, ?)",
+            (request.phone_number, "rPendingCustodialWallet", DEFAULT_DEMO_PIN_HASH),
         )
 
         cursor.execute(

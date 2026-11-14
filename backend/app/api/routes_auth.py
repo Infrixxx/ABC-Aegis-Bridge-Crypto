@@ -1,11 +1,11 @@
 """
 app/api/routes_auth.py
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-----------------------
 User authentication and session management for Aegis Bridge Crypto (ABC).
 Supports the 3 core personas:
-  â€¢ Sis Thandi (Spaza Shop Merchant - 'shop')
-  â€¢ Kagiso Ndlovu (IoT / Vending Fleet Lead - 'machines')
-  â€¢ Dr. Arthur Vance (CFO & Treasury Auditor - 'pro')
+  * Sis Thandi (Spaza Shop Merchant - 'shop')
+  * Kagiso Ndlovu (IoT / Vending Fleet Lead - 'machines')
+  * Dr. Arthur Vance (CFO & Treasury Auditor - 'pro')
 """
 
 import base64
@@ -31,7 +31,7 @@ DB_FILE = settings.DB_FILE
 SECRET_KEY = settings.AUTH_SECRET_KEY
 
 
-# â”€â”€ Password & Token Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Password & Token Helpers --------------------------------------------------
 
 def hash_password(password: str) -> str:
     """PBKDF2-HMAC-SHA256 hash with 16-byte random hex salt."""
@@ -82,7 +82,7 @@ def verify_token(token: str) -> Optional[dict]:
         return None
 
 
-# â”€â”€ Schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Schemas -------------------------------------------------------------------
 
 class UserPublic(BaseModel):
     id: str
@@ -112,7 +112,7 @@ class AuthResponse(BaseModel):
     user: UserPublic
 
 
-# â”€â”€ Dependency â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Dependency ----------------------------------------------------------------
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> UserPublic:
     if not authorization or not authorization.startswith("Bearer "):
@@ -153,16 +153,16 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> UserPublic:
     )
 
 
-# â”€â”€ Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- Endpoints -----------------------------------------------------------------
 
 @router.post("/login", response_model=AuthResponse)
 def login(req: LoginRequest):
     """
     Authenticates a merchant or auditor and returns a signed access token.
     Pre-seeded demo accounts (password: 'password123'):
-      â€¢ thandi@aegis.bridge (Sis Thandi - Shop POS)
-      â€¢ operator@aegis.bridge (Kagiso Ndlovu - IoT Machines)
-      â€¢ cfo@aegis.bridge (Dr. Arthur Vance - CFO Pro Audit)
+      * thandi@aegis.bridge (Sis Thandi - Shop POS)
+      * operator@aegis.bridge (Kagiso Ndlovu - IoT Machines)
+      * cfo@aegis.bridge (Dr. Arthur Vance - CFO Pro Audit)
     """
     email_clean = req.email.strip().lower()
     conn = sqlite3.connect(DB_FILE)
@@ -262,6 +262,5 @@ def get_me(current_user: UserPublic = Depends(get_current_user)):
 
 @router.post("/logout")
 def logout():
-    """Client simply drops token; endpoint confirms clearance."""
+    """Client drops token; endpoint confirms clearance."""
     return {"message": "Logged out successfully"}
-

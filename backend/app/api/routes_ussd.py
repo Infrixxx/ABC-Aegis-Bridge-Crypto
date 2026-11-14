@@ -1,11 +1,11 @@
 """
 app/api/routes_ussd.py
-â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-----------------------
 POST /api/ussd/
 
 Africa's Talking USSD webhook handler with:
-  â€¢ Caller Phone Number Binding Verification
-  â€¢ 4-Digit Custodial Wallet PIN Authentication (Default Demo PIN: 1234)
+  - Strict non-empty Caller Phone Number Binding Verification
+  - PBKDF2-Hashed 4-Digit Custodial Wallet PIN Authentication
 """
 
 import re
@@ -16,6 +16,7 @@ from datetime import datetime
 from fastapi import APIRouter, Form, Response, BackgroundTasks
 
 from app.core.config import settings
+from app.db.db_setup import verify_pin, DEFAULT_DEMO_PIN_HASH
 
 logger = logging.getLogger("abc.ussd")
 router = APIRouter()
@@ -48,20 +49,22 @@ def _handle_ussd(text: str, phone_number: str, background_tasks: BackgroundTasks
         return (
             "CON Welcome to Aegis Crypto Bridge\n"
             "1. Pay Merchant (Order Tag)\n"
-            "2. Check Custodial Wallet & PIN"
+            "2. Check Custodial Account Status"
         )
 
     if text == "1":
         return "CON Enter 8-Digit Merchant Order ID (Destination Tag):"
 
     if text == "2":
+        if not (phone_number or "").strip():
+            return "END Caller ID required to check custodial status."
         return (
-            f"END Active Phone Wallet: {phone_number or '+27821234567'}\n"
+            f"END Active Phone Wallet: {phone_number}\n"
             f"Settlement Asset: {settings.active_currency} (XRPL Testnet)\n"
-            "Custodial Security PIN: 1234"
+            "Security: 4-Digit Custodial PIN Enforced"
         )
 
-    # Menu Flow: 1*<order_id> or 1*<order_id>*<pin_or_1>
+    # Menu Flow: 1*<order_id> or 1*<order_id>*<pin>
     if text.startswith("1*"):
         parts = text.split("*")
         order_id = parts[1].strip() if len(parts) >= 2 else ""
@@ -100,10 +103,11 @@ def _lookup_order(order_id: str, caller_phone: str) -> str:
 
     amount_zar, quoted_crypto, status, fx_lock_expires_at, order_phone = row
 
-    if order_phone and caller_phone and _norm_phone(order_phone) != _norm_phone(caller_phone):
+    # Strict check: both order_phone and caller_phone must be non-empty and match
+    if not (order_phone or "").strip() or not (caller_phone or "").strip() or _norm_phone(order_phone) != _norm_phone(caller_phone):
         return (
-            "END Security Block: Caller number does not match the phone number "
-            f"registered for Order #{order_id}."
+            "END Security Block: Caller phone number is missing or does not match "
+            f"the customer phone number registered for Order #{order_id}."
         )
 
     if status in ("PAID", "PROCESSING"):
@@ -117,8 +121,8 @@ def _lookup_order(order_id: str, caller_phone: str) -> str:
 
     return (
         f"CON Pay R{amount_zar:.2f} ({quoted_crypto:.4f} {settings.active_currency})?\n"
-        f"Payer: {caller_phone or order_phone}\n"
-        "Enter 4-Digit Wallet PIN to Sign (Demo PIN: 1234):"
+        f"Payer: {caller_phone}\n"
+        "Enter your 4-Digit Custodial PIN to Sign:"
     )
 
 
@@ -142,24 +146,24 @@ def _confirm_payment(
 
         status, fx_lock_expires_at, order_phone = row
 
-        # 1. Verify Caller Phone Number matches Order Phone Number
-        if order_phone and phone_number and _norm_phone(order_phone) != _norm_phone(phone_number):
+        # 1. Strict non-empty phone number binding check
+        if not (order_phone or "").strip() or not (phone_number or "").strip() or _norm_phone(order_phone) != _norm_phone(phone_number):
             return (
-                "END Security Block: Unauthorized phone number. "
+                "END Security Block: Unauthorized or missing caller phone number. "
                 "Only the customer phone number on the bill can authorize this payment."
             )
 
-        # 2. Verify 4-Digit Custodial PIN (Accepts user's wallet_pin, '1234', or '1' for automated E2E script)
-        cursor.execute("SELECT wallet_pin FROM users WHERE phone_number = ?", (order_phone or phone_number,))
+        # 2. Verify PBKDF2-hashed 4-digit PIN from the user's record
+        cursor.execute("SELECT wallet_pin FROM users WHERE phone_number = ?", (order_phone,))
         user_row = cursor.fetchone()
-        expected_pin = (user_row[0] if user_row and user_row[0] else "1234").strip()
+        stored_pin_hash = user_row[0] if (user_row and user_row[0]) else DEFAULT_DEMO_PIN_HASH
 
-        if pin_input not in (expected_pin, "1234", "1"):
-            logger.warning("Invalid USSD PIN '%s' for order %s by %s", pin_input, order_id, phone_number)
+        if not verify_pin(pin_input, stored_pin_hash):
+            logger.warning("Invalid USSD PIN attempt for order %s by %s", order_id, phone_number)
             return "END Security Block: Invalid 4-digit Custodial PIN. Transaction aborted."
 
         if status in ("PAID", "PROCESSING"):
-            return "END Payment already confirmed. Settling on XRPL!"
+            return "END Payment Confirmed! Already settling on XRPL."
 
         if datetime.utcnow() > datetime.fromisoformat(fx_lock_expires_at):
             cursor.execute("UPDATE orders SET status = 'LATE' WHERE order_id = ?", (order_id,))
@@ -190,7 +194,7 @@ def _confirm_payment(
     threading.Thread(target=_run_pipeline, daemon=True).start()
 
     return (
-        "END Payment Confirmed! (PIN Verified)\n"
+        "END Payment Confirmed!\n"
         f"Settling {settings.active_currency} on XRP Ledger Testnet.\n"
         "Check the merchant screen for PAID confirmation."
     )
